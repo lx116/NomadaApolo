@@ -46,13 +46,48 @@ Supported suffixes (case-insensitive): `.m4a`, `.mp3`, `.wav`, `.mp4`.
   `NormalizationError` on failure and removes partial output. The source is
   never overwritten, deleted, or modified.
 
+## Transcription (Slice 3a)
+
+```python
+from transcriptor.config import TranscriptionConfig
+from transcriptor.transcriber import transcribe, TranscriptionError
+
+result = transcribe("audio.m4a")
+# result["language"], result["duration"], result["segments"], result["metrics"]
+```
+
+`transcribe(path, config=None)` validates, probes duration, and normalizes the
+audio through the Slice 1+2 boundary first, then runs faster-whisper locally and
+returns normalized segments and execution metrics. It never modifies the source.
+
+- `TranscriptionConfig` defaults: `model="medium"`, `language="es"`,
+  `device="cpu"`, `compute_type="int8"`, `vad_filter=True`, `beam_size=5`,
+  `output_dir=Path("output")`, `download_root=None`, `local_files_only=False`.
+- `download_root` selects the model cache directory; `local_files_only=True`
+  prevents any download and uses only the cached model (offline).
+- The module imports safely without faster-whisper installed; `transcribe()`
+  raises `TranscriptionError` at invocation time when the runtime dependency or
+  a cached model is missing.
+
+### faster-whisper runtime and model cache
+
+```bash
+pip install -e ".[dev]"   # installs faster-whisper>=1.2.1 as a runtime dependency
+```
+
+The first online transcription downloads the configured model into the
+HuggingFace cache (or `download_root`). For offline operation, pre-populate the
+cache and set `local_files_only=True`.
+
 ## Slice Boundaries
 
 **Slice 1**: bootstrap, pytest baseline, pure-stdlib audio input validation.
 
-**Slice 2 (this change)**: FFmpeg duration probing and 16 kHz mono
-normalization with deterministic errors, source immutability, and staged
-cleanup.
+**Slice 2**: FFmpeg duration probing and 16 kHz mono normalization with
+deterministic errors, source immutability, and staged cleanup.
 
-**Not in this slice**: faster-whisper transcription, model downloads, VAD,
-exporters, CLI, API, Django integration, `Yurbaco.m4a` processing.
+**Slice 3a (this change)**: faster-whisper transcription core with config
+defaults, normalized segments, metrics, and deterministic error mapping.
+
+**Not in this slice**: real tiny-model integration (3b), exporters, CLI, API,
+Django integration, and `Yurbaco.m4a` processing.
