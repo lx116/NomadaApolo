@@ -1,5 +1,8 @@
-"""Tests for transcriptor.transcriber — fully mocked deterministic contract."""
+"""Tests for transcriptor.transcriber — deterministic contract plus one optional real-model integration test."""
 
+import importlib.util
+import math
+import wave
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -206,3 +209,63 @@ def test_duration_after_vad_absent(tmp_path, monkeypatch):
     del info.duration_after_vad
     src, _, _ = _setup(monkeypatch, tmp_path, [_seg(0.0, 1.0, "x")], info)
     assert transcribe(src)["metrics"]["duration_after_vad"] is None
+
+
+# --- optional real cached-tiny integration ---
+
+
+def _tiny_cache_present():
+    """True only when the complete Systran tiny snapshot is cached (no network)."""
+    try:
+        from huggingface_hub.constants import HF_HUB_CACHE
+    except ImportError:
+        return False
+    snapshots = Path(HF_HUB_CACHE) / "models--Systran--faster-whisper-tiny" / "snapshots"
+    if not snapshots.is_dir():
+        return False
+    required = ("config.json", "model.bin", "tokenizer.json")
+    vocabulary = ("vocabulary.json", "vocabulary.txt")
+    return any(
+        s.is_dir()
+        and all((s / f).is_file() for f in required)
+        and any((s / f).is_file() for f in vocabulary)
+        for s in snapshots.iterdir()
+    )
+
+
+def _make_wav(path, seconds=1.0, rate=16000):
+    """Write a deterministic mono 16 kHz 16-bit PCM WAV; return the Path."""
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(b"\x00" * int(rate * seconds) * 2)
+    return Path(path)
+
+
+_HAS_FASTER_WHISPER = importlib.util.find_spec("faster_whisper") is not None
+_TINY_CACHED = _tiny_cache_present()
+
+
+@pytest.mark.skipif(not _HAS_FASTER_WHISPER or not _TINY_CACHED,
+                    reason="faster-whisper unavailable or Systran tiny model not cached")
+def test_transcribe_tiny_cached_model(tmp_path):
+    src = _make_wav(tmp_path / "tiny.wav")
+    before = src.read_bytes()
+    result = transcribe(src, TranscriptionConfig(
+        model="tiny", language="es", device="cpu", compute_type="int8",
+        local_files_only=True, output_dir=tmp_path / "output"))
+    assert src.read_bytes() == before
+
+    segments = result["segments"]
+    assert isinstance(segments, list)
+    for seg in segments:
+        assert isinstance(seg, dict) and isinstance(seg["text"], str)
+        assert isinstance(seg["start"], float) and isinstance(seg["end"], float)
+        assert 0.0 <= seg["start"] <= seg["end"]
+
+    metrics = result["metrics"]
+    assert metrics["segments_count"] == len(segments) >= 0
+    assert isinstance(result["language"], str)
+    assert math.isfinite(result["duration"]) and result["duration"] >= 0.0
+    assert math.isfinite(metrics["processing_time_s"]) and metrics["processing_time_s"] >= 0.0

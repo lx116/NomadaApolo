@@ -79,6 +79,41 @@ The first online transcription downloads the configured model into the
 HuggingFace cache (or `download_root`). For offline operation, pre-populate the
 cache and set `local_files_only=True`.
 
+### Real-model integration test (Slice 3b)
+
+The suite adds one optional real `tiny` integration test that transcribes a
+stdlib-generated 1-second WAV through the cached faster-whisper path with
+`local_files_only=True`. Tests never download model weights.
+
+- The test skips deterministically when faster-whisper is not installed or the
+  `Systran/faster-whisper-tiny` snapshot is not already cached
+  (`~/.cache/huggingface/hub`). Assertions are shape-only (segment types,
+  timestamp bounds, finiteness, count relationship, source immutability) —
+  never exact text.
+- Pre-cache `tiny` once (~75 MB) to enable the offline test:
+
+  ```bash
+  huggingface-cli download Systran/faster-whisper-tiny
+  ```
+
+After pre-caching, run one real offline transcription directly (generates its
+own isolated WAV; downloads nothing):
+
+```bash
+.venv/bin/python -c "
+import wave
+from pathlib import Path
+f = Path('/tmp/tiny-tone.wav')
+with wave.open(str(f), 'wb') as w:
+    w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000)
+    w.writeframes(b'\x00\x00' * 16000)
+from transcriptor.config import TranscriptionConfig
+from transcriptor.transcriber import transcribe
+r = transcribe(str(f), TranscriptionConfig(model='tiny', language='es', local_files_only=True, output_dir='/tmp'))
+print('segments', len(r['segments']), 'language', r['language'], 'duration', round(r['duration'], 3), 'seconds', round(r['metrics']['processing_time_s'], 3))
+"
+```
+
 ## Slice Boundaries
 
 **Slice 1**: bootstrap, pytest baseline, pure-stdlib audio input validation.
@@ -86,8 +121,11 @@ cache and set `local_files_only=True`.
 **Slice 2**: FFmpeg duration probing and 16 kHz mono normalization with
 deterministic errors, source immutability, and staged cleanup.
 
-**Slice 3a (this change)**: faster-whisper transcription core with config
+**Slice 3a**: faster-whisper transcription core with config
 defaults, normalized segments, metrics, and deterministic error mapping.
 
-**Not in this slice**: real tiny-model integration (3b), exporters, CLI, API,
-Django integration, and `Yurbaco.m4a` processing.
+**Slice 3b**: optional cached real `tiny`-model integration test (offline,
+shape-only) with pre-cache and direct-invocation docs.
+
+**Not in this slice**: exporters, CLI, API, Django integration, and
+`Yurbaco.m4a` processing.
