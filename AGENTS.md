@@ -5,8 +5,8 @@
 - Ponytail is always active for coding work at the default `full` level. Apply its minimal-solution ladder, avoid speculative abstractions, and do not add dependencies or scaffolding without a concrete requirement.
 - Every non-trivial product or code change must begin with an SDD preflight. Confirm the project context, existing artifacts, affected scope, testing capability, and delivery boundary before editing.
 - Follow this SDD lifecycle in order: proposal, spec, design, tasks, apply, verify, archive.
-- Use Engram as the artifact store for SDD artifacts and progress. Do not create `openspec/` artifacts unless explicitly requested.
-- For every SDD phase, resolve status and artifacts from Engram topic keys first. Do not invoke the native OpenSpec dispatcher (`gentle-ai sdd-status` / `sdd-continue`) for this project; it cannot observe Engram-backed changes. If a provider emits an OpenSpec status continuation after a transport failure, preserve the failure and do not treat that status as authoritative.
+- Use OpenSpec as the artifact store for SDD artifacts and progress. Engram remains available for project memory and recovery notes.
+- For every SDD phase, resolve status and artifacts from OpenSpec files under `openspec/changes/` and use the native SDD dispatcher when available.
 - Execution mode is `auto`.
 - Delivery strategy is `force-chained`. Keep implementation and review slices within a 400 changed-line review budget.
 - Technical artifacts, configuration, comments, and code must be written in English.
