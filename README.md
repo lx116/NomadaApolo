@@ -221,6 +221,7 @@ The worker inherits the runserver environment, including its database variables.
 On startup, `runserver` re-queues pending audios and recovers audios stuck longer
 than `QUEUE_MONITOR_STALE_MINUTES` (10). `POST /queue/enqueue/` performs the same
 recovery on demand and is used by the Queue panel buttons.
+The Queue modal has a "Run queue now" button and pending audios show a "Re-queue now" button; both call `POST /queue/enqueue/`, so recovery no longer needs the terminal.
 
 The worker starts once, is not restarted by code reloads, and stops on
 <kbd>Ctrl</kbd>+<kbd>C</kbd> with SIGTERM, then SIGKILL after 10 seconds.

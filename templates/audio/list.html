@@ -66,6 +66,10 @@
         {% elif selected.state == "pending" %}
           <p role="status" class="text-gray-600">Queued for transcription</p>
           <p class="mt-2 text-sm text-gray-500">Make sure the Celery worker is running.</p>
+          <div data-queue-scope class="mt-3 flex flex-wrap items-center gap-3">
+            <button type="button" data-queue-action="recover" class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium hover:bg-gray-50 disabled:opacity-50">Re-queue now</button>
+            <p data-queue-result role="status" aria-live="polite" class="text-sm text-gray-700" hidden></p>
+          </div>
         {% else %}
           <p class="text-gray-600">Not transcribed yet.</p>
         {% endif %}
@@ -159,12 +163,19 @@
       })();
     </script>
   {% endif %}
-  <dialog id="queue-dialog" aria-labelledby="queue-dialog-title" data-url="{% url 'queue-status' %}" class="w-full max-w-2xl rounded-2xl p-0 backdrop:bg-gray-900/40">
+  <dialog id="queue-dialog" aria-labelledby="queue-dialog-title" data-url="{% url 'queue-status' %}" data-enqueue-url="{% url 'queue-enqueue' %}" data-csrf="{{ csrf_token }}" class="w-full max-w-2xl rounded-2xl p-0 backdrop:bg-gray-900/40">
     <div class="flex items-center justify-between border-b border-gray-200 px-6 py-4">
       <h2 id="queue-dialog-title" class="text-lg font-semibold">Transcription queue</h2>
       <button type="button" data-queue-close aria-label="Close" class="rounded-lg px-2 py-1 text-gray-500 hover:bg-gray-100">×</button>
     </div>
     <div class="max-h-[70vh] space-y-6 overflow-y-auto px-6 py-4">
+      {% if selected %}
+        <div data-queue-scope class="flex flex-wrap items-center gap-3">
+          <button type="button" data-queue-action="recover" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">Run queue now</button>
+          <p class="text-sm text-gray-600">Re-queues pending audios and recovers audios that have been stuck for a long time.</p>
+          <p data-queue-result role="status" aria-live="polite" class="w-full text-sm text-gray-700" hidden></p>
+        </div>
+      {% endif %}
       <p data-queue-error role="alert" class="text-sm text-red-700" hidden></p>
       <section aria-label="Connections" data-queue-connections class="flex gap-2"></section>
       <section aria-label="Diagnostics" data-queue-diagnostics></section>
@@ -333,6 +344,47 @@
       });
       dialog.querySelector("[data-queue-close]").addEventListener("click", () => dialog.close());
       dialog.addEventListener("click", (event) => { if (event.target === dialog) dialog.close(); });
+      document.addEventListener("queue:refresh", () => { if (dialog.open) tick(); });
     })();
   </script>
+  {% if selected %}
+    <script>
+      (() => {
+        const config = document.getElementById("queue-dialog").dataset;
+
+        document.addEventListener("click", async (event) => {
+          const button = event.target.closest("[data-queue-action]");
+          if (!button || button.disabled) return;
+          const result = button.closest("[data-queue-scope]").querySelector("[data-queue-result]");
+          button.disabled = true;
+          try {
+            const response = await fetch(config.enqueueUrl, {
+              method: "POST",
+              headers: {"X-CSRFToken": config.csrf},
+              credentials: "same-origin",
+            });
+            if (!response.ok) throw new Error();
+            const data = await response.json();
+            let message;
+            if (!data.broker_ok) {
+              message = `Could not reach the broker: ${data.failed} pending audio(s) were not queued.`;
+            } else {
+              const parts = [];
+              if (data.reset) parts.push(`Recovered ${data.reset} stuck audio(s)`);
+              if (data.enqueued) parts.push(`Queued ${data.enqueued} pending audio(s)`);
+              message = parts.length ? parts.join(", ") : "Nothing to queue.";
+            }
+            result.hidden = false;
+            result.textContent = message;
+            document.dispatchEvent(new CustomEvent("queue:refresh"));
+          } catch {
+            result.hidden = false;
+            result.textContent = "Could not run the queue. Try again.";
+          } finally {
+            button.disabled = false;
+          }
+        });
+      })();
+    </script>
+  {% endif %}
 {% endblock %}
