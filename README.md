@@ -221,6 +221,7 @@ The worker inherits the runserver environment, including its database variables.
 
 The worker starts once, is not restarted by code reloads, and stops on
 <kbd>Ctrl</kbd>+<kbd>C</kbd> with SIGTERM, then SIGKILL after 10 seconds.
+Closing the terminal (SIGHUP) or using `kill` also stops the worker; only a hard `kill -9` can leave one behind, and the next `runserver` detects and reuses it instead of starting a second.
 An interrupted transcription remains `processing`; recover it with
 `python manage.py transcribe_pending --reset-stale 10 --enqueue`.
 

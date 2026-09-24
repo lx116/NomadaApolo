@@ -1,4 +1,6 @@
 import os
+import signal
+import sys
 import time
 
 from django.contrib.staticfiles.management.commands.runserver import Command as StaticRunserverCommand
@@ -19,12 +21,25 @@ class Command(StaticRunserverCommand):
         is_parent = os.environ.get(autoreload.DJANGO_AUTORELOAD_ENV) != "true"
         if options.get("start_worker", True) and is_parent:
             worker = self._start_stack()
+        previous_handlers = {}
+        if worker is not None:
+            for signum in (signal.SIGHUP, signal.SIGTERM):
+                try:
+                    previous_handlers[signum] = signal.signal(
+                        signum, lambda _signum, _frame: sys.exit(0))
+                except (ValueError, OSError):
+                    pass
         try:
             super().run(**options)
         finally:
             if worker is not None:
                 dev_stack.stop_worker(worker)
                 self.stdout.write("Celery worker stopped.")
+            for signum, handler in previous_handlers.items():
+                try:
+                    signal.signal(signum, handler)
+                except (ValueError, OSError):
+                    pass
 
     def _start_stack(self):
         dev_stack.ensure_broker(self.stdout.write)
