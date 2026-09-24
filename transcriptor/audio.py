@@ -8,7 +8,7 @@ import tempfile
 import wave
 from pathlib import Path
 
-SUPPORTED_SUFFIXES: frozenset[str] = frozenset({".m4a", ".mp3", ".wav", ".mp4",".opus"})
+SUPPORTED_SUFFIXES: frozenset[str] = frozenset({".m4a", ".mp3", ".wav", ".mp4"})
 
 
 class AudioProbeError(Exception):
