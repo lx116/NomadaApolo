@@ -5,6 +5,7 @@ from django.core.files import File
 from django.db import IntegrityError, transaction
 
 from api.models import Audio
+from api.tasks import enqueue_transcription
 from transcriptor.audio import SUPPORTED_SUFFIXES
 
 
@@ -118,5 +119,6 @@ def import_audio_files(
             audio.audio_file.delete(save=False)
             skipped.append((name, "already_imported"))
         else:
+            enqueue_transcription(audio)
             imported.append(name)
     return imported, skipped

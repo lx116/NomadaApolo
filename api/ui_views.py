@@ -17,6 +17,7 @@ from api.folder_source import (
 from api.forms import AudioUploadForm
 from api.local_owner import get_local_owner
 from api.models import Audio
+from api.tasks import enqueue_transcription
 
 
 def audio_list(request, pk=None) -> HttpResponse:
@@ -71,11 +72,12 @@ def audio_upload(request) -> HttpResponse:
     if request.method == "POST" and form.is_valid():
         audio_file = form.cleaned_data["audio_file"]
         title = form.cleaned_data["title"] or Path(audio_file.name).stem[:200]
-        Audio.objects.create(
+        audio = Audio.objects.create(
             owner=get_local_owner(),
             title=title,
             audio_file=audio_file,
         )
+        enqueue_transcription(audio)
         messages.success(request, "Audio uploaded successfully.")
         return redirect("audio-list")
 

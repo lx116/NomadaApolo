@@ -22,6 +22,38 @@ pytest
 The mocked contract tests run without FFmpeg. The real-binary integration
 test is skipped automatically when `ffprobe`/`ffmpeg` are absent.
 
+## Background transcription (Celery + Redis)
+
+Start Redis, inspect it, and stop it when finished:
+
+```bash
+docker compose up -d redis
+docker compose ps
+docker compose logs redis
+docker compose down
+```
+
+Run Django in Terminal A and the Celery worker in Terminal B:
+
+```bash
+python manage.py runserver
+celery -A nomadaapolo worker --concurrency=1 -l info
+```
+
+Enqueue audio loaded before this change or while the broker was unavailable:
+
+```bash
+python manage.py transcribe_pending --enqueue
+```
+
+Reset stale processing rows before enqueueing them again:
+
+```bash
+python manage.py transcribe_pending --reset-stale 30 --enqueue
+```
+
+Set the `CELERY_BROKER_URL` environment variable to override the broker URL.
+
 ## Public Contract (Slice 1 + 2)
 
 ```python

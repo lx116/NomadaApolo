@@ -5,9 +5,13 @@ from pathlib import Path
 import pytest
 from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.core.management import call_command
+from django.core.management import CommandError, call_command
+from django.utils import timezone
 
-from api import services
+from datetime import timedelta
+from unittest.mock import patch
+
+from api import services, tasks
 from api.models import Audio
 from transcriptor.transcriber import TranscriptionError
 
@@ -106,3 +110,75 @@ def test_summary_line(monkeypatch):
     assert "One" in lines[0] and "transcribed" in lines[0]
     assert "Two" in lines[1] and "transcribed" in lines[1]
     assert lines[-1] == "Processed 2: 2 transcribed, 0 failed"
+
+
+@pytest.mark.django_db
+def test_enqueue_only_pending_without_state_changes():
+    owner = User.objects.create_user(username="owner")
+    pending = [create_audio(owner, str(index)) for index in range(2)]
+    others = [create_audio(owner, "processing", "processing"), create_audio(owner, "failed", "failed")]
+    with patch.object(tasks.transcribe_audio_task, "delay") as delay:
+        call_command("transcribe_pending", "--enqueue", stdout=StringIO())
+
+    assert [call.args[0] for call in delay.call_args_list] == [str(audio.pk) for audio in pending]
+    assert list(Audio.objects.order_by("created_at").values_list("state", flat=True)) == ["pending", "pending", "processing", "failed"]
+
+
+@pytest.mark.django_db
+def test_enqueue_with_nothing_pending_reports_zero():
+    output = StringIO()
+    with patch.object(tasks.transcribe_audio_task, "delay") as delay:
+        assert call_command("transcribe_pending", "--enqueue", stdout=output) is None
+    delay.assert_not_called()
+    assert "0 enqueued" in output.getvalue()
+
+
+@pytest.mark.django_db
+def test_reset_stale_processing_only():
+    owner = User.objects.create_user(username="owner")
+    old = create_audio(owner, "old", "processing")
+    recent = create_audio(owner, "recent", "processing")
+    ignored = [create_audio(owner, "failed", "failed"), create_audio(owner, "done", "transcribed")]
+    Audio.objects.filter(pk=old.pk).update(updated_at=timezone.now() - timedelta(minutes=31))
+    Audio.objects.filter(pk=recent.pk).update(updated_at=timezone.now() - timedelta(minutes=29))
+    output = StringIO()
+
+    with patch.object(services, "transcribe_audio") as transcribe:
+        call_command("transcribe_pending", "--reset-stale", "30", stdout=output)
+
+    old.refresh_from_db(); recent.refresh_from_db()
+    assert (old.state, recent.state) == ("pending", "processing")
+    assert set(Audio.objects.filter(pk__in=[a.pk for a in ignored]).values_list("state", flat=True)) == {"failed", "transcribed"}
+    assert "1 reset to pending" in output.getvalue()
+    transcribe.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_reset_stale_reports_zero_for_non_processing_rows():
+    owner = User.objects.create_user(username="owner")
+    rows = [create_audio(owner, "failed", "failed"), create_audio(owner, "done", "transcribed")]
+    Audio.objects.filter(pk__in=[row.pk for row in rows]).update(updated_at=timezone.now() - timedelta(days=1))
+    output = StringIO()
+    call_command("transcribe_pending", "--reset-stale", "1", stdout=output)
+    assert "0 reset" in output.getvalue()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("value", ["abc", "-5", "0"])
+def test_reset_stale_rejects_invalid_minutes_without_changes(value):
+    owner = User.objects.create_user(username="owner")
+    audio = create_audio(owner, "old", "processing")
+    with pytest.raises(CommandError):
+        call_command("transcribe_pending", "--reset-stale", value)
+    audio.refresh_from_db()
+    assert audio.state == "processing"
+
+
+@pytest.mark.django_db
+def test_reset_then_enqueue_includes_reset_row():
+    owner = User.objects.create_user(username="owner")
+    audio = create_audio(owner, "old", "processing")
+    Audio.objects.filter(pk=audio.pk).update(updated_at=timezone.now() - timedelta(minutes=31))
+    with patch.object(tasks.transcribe_audio_task, "delay") as delay:
+        call_command("transcribe_pending", "--reset-stale", "30", "--enqueue", stdout=StringIO())
+    delay.assert_called_once_with(str(audio.pk))
