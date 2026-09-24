@@ -12,6 +12,43 @@ class FolderSourceError(Exception):
     pass
 
 
+def list_source_folders(
+    root: str | None, max_depth: int = 3, max_entries: int = 200
+) -> list[str]:
+    if not root or max_entries <= 0:
+        return []
+    try:
+        if not os.path.isdir(root):
+            return []
+    except OSError:
+        return []
+
+    folders = [""]
+    if len(folders) >= max_entries:
+        return folders
+    try:
+        for current, dirnames, _filenames in os.walk(
+            root, topdown=True, followlinks=False
+        ):
+            relative = Path(current).relative_to(root)
+            depth = len(relative.parts)
+            dirnames[:] = sorted(
+                name
+                for name in dirnames
+                if not name.startswith(".")
+                and not os.path.islink(os.path.join(current, name))
+            )
+            if depth >= max_depth:
+                dirnames[:] = []
+            if depth and depth <= max_depth:
+                folders.append(relative.as_posix())
+                if len(folders) >= max_entries:
+                    break
+    except (OSError, ValueError):
+        pass
+    return folders
+
+
 def resolve_source_dir(root: str | None, relative: str) -> tuple[Path, Path]:
     if not root:
         raise FolderSourceError("Folder source is disabled")

@@ -11,6 +11,7 @@ from api.folder_source import (
     FolderSourceError,
     discover_audio_files,
     import_audio_files,
+    list_source_folders,
     resolve_source_dir,
 )
 from api.forms import AudioUploadForm
@@ -21,6 +22,25 @@ from api.models import Audio
 def audio_list(request, pk=None) -> HttpResponse:
     audios = Audio.objects.select_related("transcription").order_by("-created_at")
     selected = get_object_or_404(audios, pk=pk) if pk else audios.first()
+    folder_source_enabled = bool(settings.AUDIO_SOURCE_ROOT)
+    source_root_name = (
+        Path(settings.AUDIO_SOURCE_ROOT).name if folder_source_enabled else ""
+    )
+    source_folder_values = (
+        list_source_folders(settings.AUDIO_SOURCE_ROOT)
+        if folder_source_enabled
+        else []
+    )
+    source_root_missing = folder_source_enabled and not source_folder_values
+    source_folders = [
+        (
+            relative,
+            f"{source_root_name}/{relative}"
+            if relative
+            else f"{source_root_name} (root)",
+        )
+        for relative in source_folder_values
+    ]
 
     try:
         transcription = selected.transcription if selected else None
@@ -34,7 +54,10 @@ def audio_list(request, pk=None) -> HttpResponse:
             "audios": audios,
             "selected": selected,
             "transcription": transcription,
-            "folder_source_enabled": bool(settings.AUDIO_SOURCE_ROOT),
+            "folder_source_enabled": folder_source_enabled,
+            "source_folders": source_folders,
+            "source_root_name": source_root_name,
+            "source_root_missing": source_root_missing,
         },
     )
 

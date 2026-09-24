@@ -1,5 +1,6 @@
 import importlib
 import os
+from pathlib import Path
 
 import pytest
 from django.contrib.auth.models import User
@@ -151,3 +152,59 @@ def test_migration_reversible():
     assert operation.model_name == "audio"
     assert operation.name == "source_path"
     assert operation.field.null and operation.field.unique
+
+
+def test_settings_default_root_is_project_audio_dir(monkeypatch):
+    project_settings = importlib.import_module("nomadaapolo.settings")
+    original = os.environ.get("AUDIO_SOURCE_ROOT")
+    monkeypatch.delenv("AUDIO_SOURCE_ROOT", raising=False)
+    try:
+        reloaded = importlib.reload(project_settings)
+        assert Path(reloaded.AUDIO_SOURCE_ROOT) == reloaded.BASE_DIR / "audio"
+    finally:
+        if original is None:
+            monkeypatch.delenv("AUDIO_SOURCE_ROOT", raising=False)
+        else:
+            monkeypatch.setenv("AUDIO_SOURCE_ROOT", original)
+        importlib.reload(project_settings)
+
+
+def test_list_source_folders_root_and_nested(folder_source, tmp_path):
+    root = tmp_path / "root"
+    (root / "a" / "deep").mkdir(parents=True)
+    (root / "b").mkdir()
+    (root / "loose.txt").write_text("not a folder")
+
+    assert folder_source.list_source_folders(str(root)) == ["", "a", "a/deep", "b"]
+
+
+def test_list_source_folders_skips_symlinks_and_hidden(folder_source, tmp_path):
+    root = tmp_path / "root"
+    visible = root / "visible"
+    hidden = root / ".hidden"
+    target = tmp_path / "target"
+    visible.mkdir(parents=True)
+    hidden.mkdir()
+    target.mkdir()
+    os.symlink(target, root / "linked")
+
+    assert folder_source.list_source_folders(str(root)) == ["", "visible"]
+
+
+def test_list_source_folders_respects_max_depth_and_max_entries(folder_source, tmp_path):
+    root = tmp_path / "root"
+    (root / "a" / "deep" / "too-deep").mkdir(parents=True)
+    (root / "b").mkdir()
+    (root / "c").mkdir()
+
+    assert folder_source.list_source_folders(str(root), max_depth=2) == [
+        "", "a", "a/deep", "b", "c"
+    ]
+    assert folder_source.list_source_folders(str(root), max_entries=1) == [""]
+    assert folder_source.list_source_folders(str(root), max_entries=3) == ["", "a", "a/deep"]
+
+
+def test_list_source_folders_missing_or_unset_root_returns_empty(folder_source, tmp_path):
+    assert folder_source.list_source_folders(None) == []
+    assert folder_source.list_source_folders("") == []
+    assert folder_source.list_source_folders(str(tmp_path / "missing")) == []

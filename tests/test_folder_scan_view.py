@@ -66,3 +66,49 @@ def test_scan_form_shown_only_when_enabled(client, settings, tmp_path):
     assert b'name="subfolder"' in content
     settings.AUDIO_SOURCE_ROOT = None
     assert reverse("audio-folder-scan").encode() not in client.get(reverse("audio-list")).content
+
+
+@pytest.mark.django_db
+def test_form_renders_select_with_root_and_subfolders(client, settings, tmp_path):
+    root = tmp_path / "audio"
+    (root / "a").mkdir(parents=True)
+    settings.AUDIO_SOURCE_ROOT = str(root)
+
+    content = client.get(reverse("audio-list")).content.decode()
+
+    assert '<select name="subfolder"' in content
+    assert '<option value="" selected>' in content
+    assert '<option value="a">' in content
+    assert '<input type="text" name="subfolder"' not in content
+    assert content.index('<option value="" selected>') < content.index('<option value="a">')
+
+
+@pytest.mark.django_db
+def test_select_value_scans_chosen_folder(client, settings, tmp_path):
+    root = tmp_path / "audio"
+    chosen = root / "a"
+    chosen.mkdir(parents=True)
+    (chosen / "one.mp3").write_bytes(b"one")
+    (chosen / "two.opus").write_bytes(b"two")
+    settings.AUDIO_SOURCE_ROOT = str(root)
+
+    response = client.post(reverse("audio-folder-scan"), {"subfolder": "a"})
+
+    assert response.status_code == 302
+    assert set(Audio.objects.values_list("title", "state")) == {
+        ("one", "pending"),
+        ("two", "pending"),
+    }
+
+
+@pytest.mark.django_db
+def test_root_missing_shows_hint_not_500(client, settings, tmp_path):
+    settings.AUDIO_SOURCE_ROOT = str(tmp_path / "audio")
+
+    response = client.get(reverse("audio-list"))
+    content = response.content.decode()
+
+    assert response.status_code == 200
+    assert 'The source folder "audio" does not exist yet.' in content
+    assert str(tmp_path) not in content
+    assert 'name="subfolder"' not in content

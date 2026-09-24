@@ -8,14 +8,24 @@
 
 {% block content %}
   {% if folder_source_enabled %}
-    <form method="post" action="{% url 'audio-folder-scan' %}" class="mb-8 flex flex-col gap-3 rounded-xl border border-gray-200 bg-white p-4 sm:flex-row sm:items-end">
-      {% csrf_token %}
-      <label class="flex-1 text-sm font-medium text-gray-700">
-        Subfolder (relative to the source root, empty = root)
-        <input type="text" name="subfolder" class="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 font-normal">
-      </label>
-      <button type="submit" class="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50">Scan folder</button>
-    </form>
+    {% if source_root_missing %}
+      <div class="mb-8 rounded-xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600">
+        The source folder "{{ source_root_name }}" does not exist yet. Create it or set AUDIO_SOURCE_ROOT.
+      </div>
+    {% else %}
+      <form method="post" action="{% url 'audio-folder-scan' %}" class="mb-8 flex flex-col gap-3 rounded-xl border border-gray-200 bg-white p-4 sm:flex-row sm:items-end">
+        {% csrf_token %}
+        <label class="flex-1 text-sm font-medium text-gray-700">
+          Source folder
+          <select name="subfolder" class="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 font-normal">
+            {% for value, label in source_folders %}
+              <option value="{{ value }}"{% if forloop.first %} selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <button type="submit" class="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50">Load audios from folder</button>
+      </form>
+    {% endif %}
   {% endif %}
   {% if selected %}
     <div class="grid grid-cols-1 gap-8 md:grid-cols-[20rem_1fr]">
