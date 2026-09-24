@@ -6,7 +6,10 @@ build-backend = "setuptools.build_meta"
 name = "nomadaapolo"
 version = "0.1.0"
 requires-python = ">=3.10"
-dependencies = ["faster-whisper>=1.2.1"]
+dependencies = [
+    "faster-whisper>=1.2.1",
+    "psycopg[binary]>=3.1",
+]
 
 [dependency-groups]
 dev = ["pytest>=8.0"]
