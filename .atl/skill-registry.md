@@ -6,6 +6,7 @@ Last updated: 2026-09-24
 
 ## Sources scanned
 
+- .claude/skills
 - /Users/luisvelez/.pi/agent/skills
 - /Users/luisvelez/.config/opencode/skills
 - /Users/luisvelez/.claude/skills
@@ -29,6 +30,7 @@ Last updated: 2026-09-24
 | --- | --- | --- | --- |
 | `branch-pr` | Create Gentle AI pull requests with issue-first checks. Trigger: creating, opening, or preparing PRs for review. | user | `/Users/luisvelez/.config/opencode/skills/branch-pr/SKILL.md` |
 | `chained-pr` | Trigger: PRs over 400 lines, stacked PRs, review slices. Split oversized changes into chained PRs that protect review focus. | user | `/Users/luisvelez/.config/opencode/skills/chained-pr/SKILL.md` |
+| `codex-code-changes` | Trigger: any request that creates, edits, deletes, or renames source code in NomadaApolo, including SDD sdd-apply and remediation work. Route every code alteration through the Codex plugin; the orchestrator plans, delegates, and verifies but never edits code itself. | project | `/Users/luisvelez/PycharmProjects/NomadaApolo/.claude/skills/codex-code-changes/SKILL.md` |
 | `cognitive-doc-design` | Design docs that reduce cognitive load. Trigger: writing guides, READMEs, RFCs, onboarding, architecture, or review-facing docs. | user | `/Users/luisvelez/.config/opencode/skills/cognitive-doc-design/SKILL.md` |
 | `comment-writer` | Write warm, direct collaboration comments. Trigger: PR feedback, issue replies, reviews, Slack messages, or GitHub comments. | user | `/Users/luisvelez/.config/opencode/skills/comment-writer/SKILL.md` |
 | `gentle-ai-bench` | Trigger: bench, journey, journeys, driven mode, gentle-ai-bench, journey corpus, j-numbers, bench axis. Author and verify gentle-ai bench journeys; go test ./bench never proves driven execution. | user | `/Users/luisvelez/.config/opencode/skills/gentle-ai-bench/SKILL.md` |
