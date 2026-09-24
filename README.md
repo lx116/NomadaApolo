@@ -174,3 +174,34 @@ shape-only) with pre-cache and direct-invocation docs.
 
 **Not in this slice**: exporters, CLI, API, Django integration, and
 `Yurbaco.m4a` processing.
+
+## Queue monitor
+
+`GET /queue/status/` returns a read-only JSON snapshot of the transcription
+queue. The endpoint never publishes, acknowledges, or purges messages and does
+not write to the database. `QUEUE_MONITOR_STALE_MINUTES` controls when a
+processing audio is considered stale; it defaults to `10`.
+
+The payload contains:
+
+- broker reachability, Redis location, latency, queue counts, and capped tasks;
+- worker names plus capped active and reserved tasks;
+- audio state counts and capped state buckets;
+- ordered error, warning, and informational diagnostics.
+
+Only audio IDs and titles are exposed. Paths, filenames, transcript text, and
+broker credentials are excluded.
+
+| Diagnostic | Meaning | Action |
+| --- | --- | --- |
+| `broker_unreachable` | Redis cannot be reached. | `docker compose up -d redis` |
+| `worker_offline_with_backlog` | Work is waiting but no worker replied. | `celery -A nomadaapolo worker -l info --concurrency=1` |
+| `worker_no_reply` | A recent heartbeat suggests the worker may be busy. | Wait and check again. |
+| `pending_not_queued` | Pending audios are absent from the queue. | `python manage.py transcribe_pending --enqueue` |
+| `processing_no_worker` | Processing audios have stale heartbeats. | `python manage.py transcribe_pending --reset-stale 10` |
+| `queued_not_pending` | Queued tasks target non-pending audios. | No action; the worker skips them. |
+| `unknown_message` | Queued messages could not be decoded. | Inspect the producer. |
+
+A worker with concurrency 1 may not answer inspection while it is busy; a
+recent processing heartbeat distinguishes that case. Non-Redis brokers report
+queue inspection as unsupported rather than guessing queue contents.

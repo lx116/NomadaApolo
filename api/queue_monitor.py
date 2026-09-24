@@ -5,7 +5,9 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor, wait
 from time import monotonic
 
+from django.conf import settings
 from django.db.models import Count
+from django.utils import timezone
 from kombu.exceptions import OperationalError
 
 from api.models import Audio
@@ -16,6 +18,7 @@ QUEUE_CAP = 50
 BUCKET_CAP = 20
 INSPECT_TIMEOUT_S = 1.0
 DEADLINE_S = 1.5
+PENDING_GRACE_S = 30
 UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.I)
 
 
@@ -202,3 +205,117 @@ def attach_titles(broker: dict, workers: dict) -> None:
         titles = {}
     for item in items:
         item["title"] = titles.get(item.get("audio_id"))
+
+
+def _ids(items) -> list[str]:
+    return list(dict.fromkeys(
+        item.get("id") or item.get("audio_id")
+        for item in items
+        if item.get("id") or item.get("audio_id")
+    ))[:BUCKET_CAP]
+
+
+def diagnose(broker: dict, workers: dict, audios: dict, stale_minutes: int) -> list[dict]:
+    findings = []
+
+    def add(code, severity, message, hint=None, audio_ids=()):
+        findings.append({"code": code, "severity": severity, "message": message,
+                         "hint": hint, "audio_ids": list(audio_ids)[:BUCKET_CAP]})
+
+    broker_ok = broker.get("ok", False)
+    broker_known = broker_ok and broker.get("supported", False)
+    workers_ok = workers.get("ok", False)
+    audios_ok = audios.get("ok", False)
+    stale_s = stale_minutes * 60
+
+    if not broker_ok:
+        add("broker_unreachable", "error", "Cannot reach the message broker (Redis).",
+            "Start Redis: docker compose up -d redis")
+
+    in_worker = set()
+    if workers_ok:
+        in_worker = set(_ids(workers.get("active", []) + workers.get("reserved", [])))
+        if broker_ok and not workers.get("online"):
+            fresh = ([row for row in audios.get("processing", [])
+                      if row.get("heartbeat_age_s", stale_s + 1) <= stale_s]
+                     if audios_ok else [])
+            backlog = ((broker_known and (broker.get("queued", 0) > 0 or broker.get("unacked", 0) > 0))
+                       or (audios_ok and audios.get("counts", {}).get("pending", 0) > 0))
+            if fresh:
+                add("worker_no_reply", "warning",
+                    "No worker answered, but a transcription reported progress recently; the worker may be busy.",
+                    audio_ids=_ids(fresh))
+            elif backlog:
+                add("worker_offline_with_backlog", "error",
+                    "No worker is running and work is waiting.",
+                    "Start the worker: celery -A nomadaapolo worker -l info --concurrency=1")
+
+    if (audios_ok and broker_known and workers_ok and broker.get("truncated", 0) == 0
+            and (workers.get("online") or broker.get("unacked", 0) == 0)):
+        accounted = set(_ids(broker.get("messages", []))) | in_worker
+        orphans = [row for row in audios.get("pending", [])
+                   if row.get("id") not in accounted and row.get("age_s", 0) >= PENDING_GRACE_S]
+        if orphans:
+            add("pending_not_queued", "warning", "Pending audios are not in the queue.",
+                "python manage.py transcribe_pending --enqueue", _ids(orphans))
+
+    if audios_ok and workers_ok:
+        active_ids = set(_ids(workers.get("active", [])))
+        stale = [row for row in audios.get("processing", [])
+                 if row.get("heartbeat_age_s", 0) > stale_s and row.get("id") not in active_ids]
+        if stale:
+            add("processing_no_worker", "warning", "Processing audios have no recent progress.",
+                f"python manage.py transcribe_pending --reset-stale {stale_minutes}", _ids(stale))
+
+    if (audios_ok and (broker_known or workers_ok)
+            and audios.get("counts", {}).get("pending", 0) <= BUCKET_CAP):
+        pending_ids = set(_ids(audios.get("pending", [])))
+        extra, seen = [], set()
+        if broker_known:
+            for item in broker.get("messages", []):
+                audio_id = item.get("audio_id")
+                if audio_id and (audio_id not in pending_ids or audio_id in seen):
+                    extra.append(item)
+                if audio_id:
+                    seen.add(audio_id)
+        if workers_ok:
+            extra.extend(item for item in workers.get("reserved", [])
+                         if item.get("audio_id") and item["audio_id"] not in pending_ids)
+        if extra:
+            add("queued_not_pending", "info",
+                "Queued tasks point to audios that are not pending; the worker will skip them.",
+                audio_ids=_ids(extra))
+
+    if broker_known:
+        unknown = sum(item.get("task") == "unknown" or item.get("audio_id") is None
+                      for item in broker.get("messages", []))
+        if unknown:
+            noun = "message" if unknown == 1 else "messages"
+            add("unknown_message", "info", f"{unknown} queued {noun} could not be decoded.")
+
+    rank = {"error": 0, "warning": 1, "info": 2}
+    return sorted(findings, key=lambda item: rank[item["severity"]])
+
+
+def build_status(sources=None, now=None) -> dict:
+    now = now or timezone.now()
+    results = run_sources(sources if sources is not None else default_sources())
+    ok_b, broker_result = results["broker"]
+    broker = {"ok": True, **broker_result} if ok_b else {"ok": False, "error": broker_result}
+    if broker.get("location") and "@" in broker["location"]:
+        broker["location"] = broker["location"].split("@", 1)[1]
+    ping, active, reserved = (results[key] for key in ("ping", "active", "reserved"))
+    if ping[0] and active[0] and reserved[0]:
+        workers = {"ok": True, **summarize_workers(ping[1], active[1], reserved[1])}
+    else:
+        workers = {"ok": False, "error": next(value for ok, value in (ping, active, reserved) if not ok)}
+    try:
+        audios = {"ok": True, **read_audios(now)}
+    except Exception:
+        audios = {"ok": False, "error": "error"}
+    attach_titles(broker, workers)
+    return {"generated_at": now.isoformat(),
+            "stale_minutes": settings.QUEUE_MONITOR_STALE_MINUTES,
+            "broker": broker, "workers": workers, "audios": audios,
+            "diagnostics": diagnose(broker, workers, audios,
+                                    settings.QUEUE_MONITOR_STALE_MINUTES)}

@@ -17,7 +17,7 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import include, path
 
-from api.ui_views import audio_folder_scan, audio_list, audio_status, audio_upload
+from api.ui_views import audio_folder_scan, audio_list, audio_status, audio_upload, queue_status
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -26,5 +26,6 @@ urlpatterns = [
     path('folder/scan/', audio_folder_scan, name='audio-folder-scan'),
     path('', audio_list, name='audio-list'),
     path('audios/status/', audio_status, name='audio-status'),
+    path('queue/status/', queue_status, name='queue-status'),
     path('audios/<uuid:pk>/', audio_list, name='audio-detail'),
 ]
