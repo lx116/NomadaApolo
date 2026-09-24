@@ -20,6 +20,28 @@ from api.models import Audio
 from api.tasks import enqueue_transcription
 
 
+def progress_payload(state, done, total):
+    if state != "processing" or done is None or not total or total <= 0:
+        return None
+    done = min(max(done, 0.0), total)
+    return {
+        "done": done,
+        "total": total,
+        "percent": min(100, max(0, int(done * 100 / total))),
+    }
+
+
+def format_clock(seconds):
+    total = int(seconds)
+    hours, rest = divmod(total, 3600)
+    minutes, secs = divmod(rest, 60)
+    return (
+        f"{hours}:{minutes:02d}:{secs:02d}"
+        if hours
+        else f"{minutes:02d}:{secs:02d}"
+    )
+
+
 def audio_list(request, pk=None) -> HttpResponse:
     audios = list(
         Audio.objects.select_related("transcription").order_by("-created_at")
@@ -31,6 +53,16 @@ def audio_list(request, pk=None) -> HttpResponse:
     else:
         selected = audios[0] if audios else None
     audio_states = {str(audio.pk): audio.state for audio in audios}
+    for audio in audios:
+        audio.progress = progress_payload(
+            audio.state, audio.progress_done, audio.progress_total
+        )
+        if audio.progress:
+            audio.progress_label = (
+                f"{audio.progress['percent']}% – "
+                f"{format_clock(audio.progress['done'])} of "
+                f"{format_clock(audio.progress['total'])}"
+            )
     polling = any(
         state in ("pending", "processing") for state in audio_states.values()
     )
@@ -79,9 +111,15 @@ def audio_list(request, pk=None) -> HttpResponse:
 @require_GET
 def audio_status(request) -> JsonResponse:
     audios = [
-        {"id": str(pk), "state": state}
-        for pk, state in Audio.objects.order_by("-created_at").values_list(
-            "pk", "state"
+        {
+            "id": str(pk),
+            "state": state,
+            "progress": progress_payload(state, done, total),
+        }
+        for pk, state, done, total in Audio.objects.order_by(
+            "-created_at"
+        ).values_list(
+            "pk", "state", "progress_done", "progress_total"
         )
     ]
     return JsonResponse({"audios": audios})

@@ -36,7 +36,10 @@
             <a href="{% url 'audio-detail' a.pk %}"{% if a.pk == selected.pk %} aria-current="page"{% endif %}
                class="flex items-center justify-between gap-3 rounded-xl border px-4 py-3 {% if a.pk == selected.pk %}border-blue-300 bg-blue-50 text-blue-950{% else %}border-gray-200 bg-white hover:border-gray-300{% endif %}">
               <span class="min-w-0 truncate font-medium">{{ a.title }}</span>
-              {% include "audio/_badge.html" with state=a.state %}
+              <span class="flex shrink-0 items-center gap-2">
+                {% include "audio/_badge.html" with state=a.state %}
+                {% if a.state == "processing" %}<span data-progress-for="{{ a.pk }}" data-progress-kind="item" class="text-xs tabular-nums text-gray-500">{% if a.progress %}{{ a.progress.percent }}%{% endif %}</span>{% endif %}
+              </span>
             </a>
           {% endfor %}
         </nav>
@@ -53,6 +56,12 @@
             <span class="h-2 w-2 rounded-full bg-blue-500 motion-safe:animate-pulse" aria-hidden="true"></span>
             Transcribing...
           </p>
+          <div data-progress-for="{{ selected.pk }}" data-progress-kind="panel" class="mt-4">
+            <div role="progressbar" aria-label="Transcription progress" aria-valuemin="0" aria-valuemax="100"{% if selected.progress %} aria-valuenow="{{ selected.progress.percent }}"{% endif %} class="h-2 overflow-hidden rounded-full bg-gray-100">
+              <div data-progress-fill class="h-full bg-blue-500{% if not selected.progress %} w-1/3 motion-safe:animate-pulse{% endif %}"{% if selected.progress %} style="width: {{ selected.progress.percent }}%"{% endif %}></div>
+            </div>
+            <p data-progress-text class="mt-2 text-sm tabular-nums text-gray-600">{% if selected.progress %}{{ selected.progress_label }}{% else %}Preparing…{% endif %}</p>
+          </div>
         {% elif selected.state == "pending" %}
           <p role="status" class="text-gray-600">Queued for transcription</p>
           <p class="mt-2 text-sm text-gray-500">Make sure the Celery worker is running.</p>
@@ -69,6 +78,15 @@
       </p>
     </section>
   {% endif %}
+  {% if selected %}
+    <p id="transcript-ready" role="status" aria-live="polite" class="mb-4 text-sm font-medium text-green-700" hidden></p>
+    <script>
+      (() => { try { if (sessionStorage.getItem("nomada:transcript-ready")) {
+        sessionStorage.removeItem("nomada:transcript-ready");
+        const el = document.getElementById("transcript-ready");
+        el.hidden = false; el.textContent = "Transcript ready"; } } catch {} })();
+    </script>
+  {% endif %}
   {% if polling %}
     {{ audio_states|json_script:"audio-states" }}
     <script>
@@ -76,18 +94,57 @@
         const rendered = JSON.parse(document.getElementById("audio-states").textContent);
         const url = "{% url 'audio-status' %}";
 
+        function clock(seconds) {
+          const total = Math.trunc(seconds);
+          const hours = Math.trunc(total / 3600);
+          const minutes = Math.trunc((total % 3600) / 60);
+          const secs = total % 60;
+          return hours
+            ? `${hours}:${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`
+            : `${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+        }
+
+        function renderProgress(audio) {
+          const progress = audio.progress;
+          document.querySelectorAll('[data-progress-for="' + audio.id + '"]').forEach((element) => {
+            if (element.dataset.progressKind === "item") {
+              element.textContent = progress ? progress.percent + "%" : "";
+              return;
+            }
+            const bar = element.querySelector('[role="progressbar"]');
+            const fill = element.querySelector("[data-progress-fill]");
+            const text = element.querySelector("[data-progress-text]");
+            if (progress) {
+              bar.setAttribute("aria-valuenow", progress.percent);
+              fill.style.width = progress.percent + "%";
+              fill.classList.remove("w-1/3", "motion-safe:animate-pulse");
+              text.textContent = `${progress.percent}% – ${clock(progress.done)} of ${clock(progress.total)}`;
+            } else {
+              bar.removeAttribute("aria-valuenow");
+              fill.style.width = "";
+              fill.classList.add("w-1/3", "motion-safe:animate-pulse");
+              text.textContent = "Preparing…";
+            }
+          });
+        }
+
         async function poll() {
           try {
             const response = await fetch(url, {cache: "no-store"});
             if (!response.ok) throw new Error("Status request failed");
             const {audios} = await response.json();
-            if (
+            const changed = (
               audios.length !== Object.keys(rendered).length ||
               audios.some((audio) => rendered[audio.id] !== audio.state)
-            ) {
+            );
+            if (changed) {
+              if (audios.some((audio) => rendered[audio.id] === "processing" && audio.state === "transcribed")) {
+                try { sessionStorage.setItem("nomada:transcript-ready", "1"); } catch {}
+              }
               location.reload();
               return;
             }
+            audios.forEach(renderProgress);
             if (!audios.some((audio) => ["pending", "processing"].includes(audio.state))) {
               return;
             }

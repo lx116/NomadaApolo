@@ -17,7 +17,7 @@ def create_audio(owner, title, state="pending", source_path=None):
 
 
 @pytest.mark.django_db
-def test_audio_status_returns_only_ids_and_states_in_newest_first_order(client):
+def test_audio_status_returns_only_public_status_in_newest_first_order(client):
     owner = User.objects.create_user(username="owner")
     audios = [
         create_audio(owner, "Pending private", "pending", "/private/pending.opus"),
@@ -32,14 +32,78 @@ def test_audio_status_returns_only_ids_and_states_in_newest_first_order(client):
     assert response.headers["Content-Type"].startswith("application/json")
     assert response.json() == {
         "audios": [
-            {"id": str(audio.pk), "state": audio.state}
+            {"id": str(audio.pk), "state": audio.state, "progress": None}
             for audio in reversed(audios)
         ]
     }
-    assert all(set(item) == {"id", "state"} for item in response.json()["audios"])
+    assert all(
+        set(item) == {"id", "state", "progress"}
+        for item in response.json()["audios"]
+    )
     assert b"/private/pending.opus" not in response.content
     assert b"Pending private.opus" not in response.content
     assert b"Pending private" not in response.content
+
+
+@pytest.mark.django_db
+def test_status_processing_progress_payload(client):
+    owner = User.objects.create_user(username="owner")
+    audio = create_audio(owner, "Processing", "processing")
+    audio.progress_done = 38.0
+    audio.progress_total = 90.0
+    audio.save(update_fields=["progress_done", "progress_total"])
+
+    item = client.get(reverse("audio-status")).json()["audios"][0]
+
+    assert item["progress"] == {"done": 38.0, "total": 90.0, "percent": 42}
+
+
+@pytest.mark.django_db
+def test_status_progress_null_outside_processing_or_without_total(client):
+    owner = User.objects.create_user(username="owner")
+    cases = [
+        ("pending", 10.0, 20.0),
+        ("transcribed", 10.0, 20.0),
+        ("failed", 10.0, 20.0),
+        ("processing", 10.0, None),
+        ("processing", 10.0, 0.0),
+        ("processing", None, 20.0),
+    ]
+    for index, (state, done, total) in enumerate(cases):
+        audio = create_audio(owner, f"Audio {index}", state)
+        audio.progress_done = done
+        audio.progress_total = total
+        audio.save(update_fields=["progress_done", "progress_total"])
+
+    payload = client.get(reverse("audio-status")).json()
+
+    assert all(item["progress"] is None for item in payload["audios"])
+
+
+@pytest.mark.django_db
+def test_status_percent_clamped(client):
+    owner = User.objects.create_user(username="owner")
+    over = create_audio(owner, "Over", "processing")
+    over.progress_done, over.progress_total = 120.0, 90.0
+    over.save(update_fields=["progress_done", "progress_total"])
+    negative = create_audio(owner, "Negative", "processing")
+    negative.progress_done, negative.progress_total = -10.0, 90.0
+    negative.save(update_fields=["progress_done", "progress_total"])
+
+    audios = client.get(reverse("audio-status")).json()["audios"]
+    by_id = {item["id"]: item["progress"] for item in audios}
+
+    assert by_id[str(over.pk)] == {"done": 90.0, "total": 90.0, "percent": 100}
+    assert by_id[str(negative.pk)] == {"done": 0.0, "total": 90.0, "percent": 0}
+
+
+@pytest.mark.django_db
+def test_status_single_query(client, django_assert_num_queries):
+    owner = User.objects.create_user(username="owner")
+    create_audio(owner, "Audio", "processing")
+
+    with django_assert_num_queries(1):
+        client.get(reverse("audio-status"))
 
 
 @pytest.mark.django_db

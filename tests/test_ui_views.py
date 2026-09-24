@@ -149,6 +149,85 @@ def test_processing_shows_transcribing_without_transcript(client):
 
 
 @pytest.mark.django_db
+def test_processing_shows_progressbar(client):
+    owner = User.objects.create_user(username="owner")
+    audio = create_audio(owner, "Processing audio", "processing")
+    audio.progress_done, audio.progress_total = 38.0, 90.0
+    audio.save(update_fields=["progress_done", "progress_total"])
+
+    content = client.get(reverse("audio-detail", args=[audio.pk])).content.decode()
+
+    assert 'role="progressbar"' in content
+    assert 'aria-valuenow="42"' in content
+    assert 'aria-valuemin="0"' in content
+    assert 'aria-valuemax="100"' in content
+    assert "42% – 00:38 of 01:30" in content
+    assert f'data-progress-for="{audio.pk}"' in content
+    assert "Transcribing..." in content
+
+
+@pytest.mark.django_db
+def test_processing_without_progress_shows_preparing(client):
+    owner = User.objects.create_user(username="owner")
+    audio = create_audio(owner, "Processing audio", "processing")
+
+    content = client.get(reverse("audio-detail", args=[audio.pk])).content.decode()
+
+    assert "Preparing…" in content
+    assert 'role="progressbar"' in content
+    progressbar = content.split('<div role="progressbar"', 1)[1].split(">", 1)[0]
+    assert "aria-valuenow" not in progressbar
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("state", ["pending", "transcribed", "failed"])
+def test_no_progressbar_when_not_processing(client, state):
+    owner = User.objects.create_user(username=f"owner-{state}")
+    audio = create_audio(owner, state.title(), state)
+
+    content = client.get(reverse("audio-detail", args=[audio.pk])).content.decode()
+
+    assert '<div role="progressbar"' not in content
+
+
+def test_format_clock():
+    from api.ui_views import format_clock
+
+    assert format_clock(3725) == "1:02:05"
+    assert format_clock(38) == "00:38"
+
+
+@pytest.mark.django_db
+def test_active_page_poller_contract(client):
+    owner = User.objects.create_user(username="owner")
+    audio = create_audio(owner, "Processing", "processing")
+
+    content = client.get(reverse("audio-detail", args=[audio.pk])).content.decode()
+
+    assert "data-progress-for" in content
+    assert "sessionStorage.setItem" in content
+    assert "location.reload" in content
+    assert "3000" in content
+    assert reverse("audio-status") in content
+
+
+@pytest.mark.django_db
+def test_inactive_page_has_ready_region_but_no_polling(client):
+    owner = User.objects.create_user(username="owner")
+    audio = create_audio(owner, "Transcribed", "transcribed", "Transcript")
+
+    content = client.get(reverse("audio-detail", args=[audio.pk])).content.decode()
+
+    assert 'id="transcript-ready"' in content
+    assert 'aria-live="polite"' in content
+    assert "Transcript ready" in content
+    assert "sessionStorage.removeItem" in content
+    assert "setTimeout" not in content
+    assert "audio-states" not in content
+    assert reverse("audio-status") not in content
+
+
+@pytest.mark.django_db
 def test_failed_transcript_area_has_no_retry_control(client):
     owner = User.objects.create_user(username="owner")
     audio = create_audio(owner, "Failed audio", "failed")
