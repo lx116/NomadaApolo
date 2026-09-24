@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block title %}Audios | Nomada Apolo{% endblock %}
+
+{% block content %}
+  {% if selected %}
+    <div class="grid grid-cols-1 gap-8 md:grid-cols-[20rem_1fr]">
+      <section>
+        <h1 class="mb-4 text-sm font-semibold uppercase tracking-wider text-gray-500">List</h1>
+        <nav aria-label="Audios" class="space-y-2">
+          {% for a in audios %}
+            <a href="{% url 'audio-detail' a.pk %}"{% if a.pk == selected.pk %} aria-current="page"{% endif %}
+               class="flex items-center justify-between gap-3 rounded-xl border px-4 py-3 {% if a.pk == selected.pk %}border-blue-300 bg-blue-50 text-blue-950{% else %}border-gray-200 bg-white hover:border-gray-300{% endif %}">
+              <span class="min-w-0 truncate font-medium">{{ a.title }}</span>
+              {% include "audio/_badge.html" with state=a.state %}
+            </a>
+          {% endfor %}
+        </nav>
+      </section>
+
+      <section class="min-w-0 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+        <h2 class="mb-6 text-xl font-semibold">Transcript</h2>
+        {% if selected.state == "transcribed" and transcription.state == "completed" %}
+          <pre class="whitespace-pre-wrap break-words font-sans leading-7 text-gray-700">{{ transcription.raw_content }}</pre>
+        {% elif selected.state == "failed" %}
+          <p class="text-gray-600">Transcription failed</p>
+        {% else %}
+          <p class="text-gray-600">Not transcribed yet. Run <code class="rounded bg-gray-100 px-1.5 py-1 text-sm">python manage.py transcribe_pending</code>.</p>
+        {% endif %}
+      </section>
+    </div>
+  {% else %}
+    <section class="rounded-2xl border border-dashed border-gray-300 bg-white px-6 py-16 text-center">
+      <h1 class="text-xl font-semibold">No audios yet</h1>
+      <p class="mx-auto mt-3 max-w-xl leading-7 text-gray-600">
+        The upload page will come later. For now, add audio records and run
+        <code class="rounded bg-gray-100 px-1.5 py-1 text-sm">python manage.py transcribe_pending</code>
+        to generate transcripts.
+      </p>
+    </section>
+  {% endif %}
+{% endblock %}
