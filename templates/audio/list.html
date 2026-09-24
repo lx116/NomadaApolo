@@ -7,6 +7,16 @@
 {% endblock %}
 
 {% block content %}
+  {% if folder_source_enabled %}
+    <form method="post" action="{% url 'audio-folder-scan' %}" class="mb-8 flex flex-col gap-3 rounded-xl border border-gray-200 bg-white p-4 sm:flex-row sm:items-end">
+      {% csrf_token %}
+      <label class="flex-1 text-sm font-medium text-gray-700">
+        Subfolder (relative to the source root, empty = root)
+        <input type="text" name="subfolder" class="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 font-normal">
+      </label>
+      <button type="submit" class="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50">Scan folder</button>
+    </form>
+  {% endif %}
   {% if selected %}
     <div class="grid grid-cols-1 gap-8 md:grid-cols-[20rem_1fr]">
       <section>

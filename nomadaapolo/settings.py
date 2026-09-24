@@ -125,6 +125,8 @@ USE_TZ = True
 STATIC_URL = 'static/'
 MEDIA_URL = "media/"
 MEDIA_ROOT = BASE_DIR / "media"
+AUDIO_SOURCE_ROOT = os.getenv("AUDIO_SOURCE_ROOT") or None
+AUDIO_SOURCE_MAX_BYTES = int(os.getenv("AUDIO_SOURCE_MAX_BYTES", 2 * 1024**3))
 LOCAL_OWNER_USERNAME = os.getenv("LOCAL_OWNER_USERNAME", "local")
 
 

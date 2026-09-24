@@ -30,6 +30,14 @@ class Audio(models.Model):
         upload_to='audio/'
     )
 
+    source_path = models.CharField(
+        max_length=4096,
+        null=True,
+        blank=True,
+        unique=True,
+        editable=False,
+    )
+
     state = models.CharField(
         max_length=20,
         choices=STATE_CHOICES,
