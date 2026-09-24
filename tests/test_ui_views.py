@@ -120,19 +120,46 @@ def test_empty_list_200_empty_state(client):
 
     assert response.status_code == 200
     assert b"No audios yet" in response.content
-    assert b"python manage.py transcribe_pending" in response.content
+    assert b"python manage.py transcribe_pending" not in response.content
 
 
 @pytest.mark.django_db
-def test_pending_shows_not_transcribed_yet(client):
+def test_pending_shows_queued_status(client):
     owner = User.objects.create_user(username="owner")
     audio = create_audio(owner, "Pending audio")
 
     response = client.get(reverse("audio-detail", args=[audio.pk]))
 
     assert response.status_code == 200
-    assert b"Not transcribed yet" in response.content
-    assert b"python manage.py transcribe_pending" in response.content
+    assert b"Queued for transcription" in response.content
+    assert b"Make sure the Celery worker is running" in response.content
+    assert b"python manage.py transcribe_pending" not in response.content
+
+
+@pytest.mark.django_db
+def test_processing_shows_transcribing_without_transcript(client):
+    owner = User.objects.create_user(username="owner")
+    audio = create_audio(owner, "Processing audio", "processing")
+
+    response = client.get(reverse("audio-detail", args=[audio.pk]))
+
+    assert response.status_code == 200
+    assert b"Transcribing..." in response.content
+    assert b"<pre" not in response.content
+
+
+@pytest.mark.django_db
+def test_failed_transcript_area_has_no_retry_control(client):
+    owner = User.objects.create_user(username="owner")
+    audio = create_audio(owner, "Failed audio", "failed")
+
+    content = client.get(reverse("audio-detail", args=[audio.pk])).content
+    transcript_area = content.split(b"<h2", 1)[1]
+
+    assert b"failed" in content
+    assert b"Transcription failed" in transcript_area
+    assert b"<form" not in transcript_area
+    assert b"Retry" not in transcript_area
 
 
 @pytest.mark.django_db

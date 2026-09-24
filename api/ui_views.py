@@ -3,9 +3,9 @@ from pathlib import Path
 from django.conf import settings
 from django.contrib import messages
 from django.core.exceptions import ObjectDoesNotExist
-from django.http import HttpResponse
-from django.shortcuts import get_object_or_404, redirect, render
-from django.views.decorators.http import require_POST
+from django.http import Http404, HttpResponse, JsonResponse
+from django.shortcuts import redirect, render
+from django.views.decorators.http import require_GET, require_POST
 
 from api.folder_source import (
     FolderSourceError,
@@ -21,8 +21,19 @@ from api.tasks import enqueue_transcription
 
 
 def audio_list(request, pk=None) -> HttpResponse:
-    audios = Audio.objects.select_related("transcription").order_by("-created_at")
-    selected = get_object_or_404(audios, pk=pk) if pk else audios.first()
+    audios = list(
+        Audio.objects.select_related("transcription").order_by("-created_at")
+    )
+    if pk:
+        selected = next((audio for audio in audios if audio.pk == pk), None)
+        if selected is None:
+            raise Http404
+    else:
+        selected = audios[0] if audios else None
+    audio_states = {str(audio.pk): audio.state for audio in audios}
+    polling = any(
+        state in ("pending", "processing") for state in audio_states.values()
+    )
     folder_source_enabled = bool(settings.AUDIO_SOURCE_ROOT)
     source_root_name = (
         Path(settings.AUDIO_SOURCE_ROOT).name if folder_source_enabled else ""
@@ -53,6 +64,8 @@ def audio_list(request, pk=None) -> HttpResponse:
         "audio/list.html",
         {
             "audios": audios,
+            "audio_states": audio_states,
+            "polling": polling,
             "selected": selected,
             "transcription": transcription,
             "folder_source_enabled": folder_source_enabled,
@@ -61,6 +74,17 @@ def audio_list(request, pk=None) -> HttpResponse:
             "source_root_missing": source_root_missing,
         },
     )
+
+
+@require_GET
+def audio_status(request) -> JsonResponse:
+    audios = [
+        {"id": str(pk), "state": state}
+        for pk, state in Audio.objects.order_by("-created_at").values_list(
+            "pk", "state"
+        )
+    ]
+    return JsonResponse({"audios": audios})
 
 
 def audio_upload(request) -> HttpResponse:

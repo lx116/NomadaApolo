@@ -48,8 +48,16 @@
           <pre class="whitespace-pre-wrap break-words font-sans leading-7 text-gray-700">{{ transcription.raw_content }}</pre>
         {% elif selected.state == "failed" %}
           <p class="text-gray-600">Transcription failed</p>
+        {% elif selected.state == "processing" %}
+          <p role="status" class="flex items-center gap-2 text-gray-600">
+            <span class="h-2 w-2 rounded-full bg-blue-500 motion-safe:animate-pulse" aria-hidden="true"></span>
+            Transcribing...
+          </p>
+        {% elif selected.state == "pending" %}
+          <p role="status" class="text-gray-600">Queued for transcription</p>
+          <p class="mt-2 text-sm text-gray-500">Make sure the Celery worker is running.</p>
         {% else %}
-          <p class="text-gray-600">Not transcribed yet. Run <code class="rounded bg-gray-100 px-1.5 py-1 text-sm">python manage.py transcribe_pending</code>.</p>
+          <p class="text-gray-600">Not transcribed yet.</p>
         {% endif %}
       </section>
     </div>
@@ -57,10 +65,40 @@
     <section class="rounded-2xl border border-dashed border-gray-300 bg-white px-6 py-16 text-center">
       <h1 class="text-xl font-semibold">No audios yet</h1>
       <p class="mx-auto mt-3 max-w-xl leading-7 text-gray-600">
-        Upload an audio file from the <a href="{% url 'audio-upload' %}" class="font-medium text-blue-600 hover:text-blue-700">Upload audio</a> page, then run
-        <code class="rounded bg-gray-100 px-1.5 py-1 text-sm">python manage.py transcribe_pending</code>
-        to generate transcripts.
+        Upload an audio file from the <a href="{% url 'audio-upload' %}" class="font-medium text-blue-600 hover:text-blue-700">Upload audio</a> page or load a folder. Transcription starts automatically.
       </p>
     </section>
+  {% endif %}
+  {% if polling %}
+    {{ audio_states|json_script:"audio-states" }}
+    <script>
+      (() => {
+        const rendered = JSON.parse(document.getElementById("audio-states").textContent);
+        const url = "{% url 'audio-status' %}";
+
+        async function poll() {
+          try {
+            const response = await fetch(url, {cache: "no-store"});
+            if (!response.ok) throw new Error("Status request failed");
+            const {audios} = await response.json();
+            if (
+              audios.length !== Object.keys(rendered).length ||
+              audios.some((audio) => rendered[audio.id] !== audio.state)
+            ) {
+              location.reload();
+              return;
+            }
+            if (!audios.some((audio) => ["pending", "processing"].includes(audio.state))) {
+              return;
+            }
+          } catch {
+            // Retry transient failures without disrupting the page.
+          }
+          setTimeout(poll, 3000);
+        }
+
+        setTimeout(poll, 3000);
+      })();
+    </script>
   {% endif %}
 {% endblock %}
