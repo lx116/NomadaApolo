@@ -10,3 +10,4 @@ models/
 /nomadaapolo/local_settings.py
 /.env
 /audio/
+/media/
