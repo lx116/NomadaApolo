@@ -7,3 +7,6 @@ output/
 *.sqlite3
 *.db
 models/
+/nomadaapolo/local_settings.py
+/.env
+/audio/
