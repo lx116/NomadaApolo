@@ -11,6 +11,13 @@
 - Delivery strategy is `force-chained`. Keep implementation and review slices within a 400 changed-line review budget.
 - Technical artifacts, configuration, comments, and code must be written in English.
 
+## Code Changes Go Through Codex (MANDATORY)
+
+- Every alteration of source code (Python, templates, CSS/JS, migrations, tests, `pyproject.toml`) must be executed by Codex via the `codex:codex-rescue` agent or the `/codex:rescue` skill. This includes `sdd-apply` and any remediation.
+- Claude, OpenCode, and every other sub-agent plan, read, run tests, and verify, but must not edit code directly. If Codex is unavailable, stop and report instead of editing.
+- Load `.claude/skills/codex-code-changes/SKILL.md` before delegating any code change; it defines the prompt contract and post-run verification.
+- Docs, SDD artifacts in Engram, `AGENTS.md`, and skill files are not code and may be edited by any agent.
+
 ## Skill Resolution
 
 - Read the current project registry at `.atl/skill-registry.md` when resolving applicable skills. It is an index only; read the exact source `SKILL.md` for each selected skill.
