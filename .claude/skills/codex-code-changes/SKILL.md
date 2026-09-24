@@ -20,7 +20,7 @@ Not code (any agent may edit): SDD artifacts in Engram, `AGENTS.md`, skill files
 3. Before the first delegation in a session, confirm Codex is ready (`codex:setup`). If it is unavailable, STOP and report. Never fall back to editing code directly.
 4. Each Codex prompt must carry: the change name, the exact slice from `sdd/{change}/tasks`, references to the `spec` and `design` topic keys, Strict TDD mode (`.venv/bin/python -m pytest -q`, test first), Ponytail minimal-solution rules, the 400 changed-line budget, and the English-only rule for code and comments.
 5. Codex must not commit, push, or touch files outside the slice. Commits use conventional commits without AI attribution.
-6. Codex must not write or update Engram SDD artifacts (it can, and it overwrote `apply-progress` once). Put the instruction "do not write to Engram" in every prompt.
+6. Codex must not write or update Engram SDD artifacts. It can, and it has: it overwrote `apply-progress` once and later rewrote a whole change's proposal/spec/design/tasks and created fake `verify-report`/`archive-report` entries. Every prompt MUST open with: "This is NOT an SDD run. Do not use any sdd-* skill. Do not call ANY mem_* tool (no save, update, search, summary)." After every Codex run, compare the change's Engram artifacts against a pre-run `engram export` snapshot and restore any that changed (originals live in the subagent transcripts, or in the scratchpad copies), then soft-delete fake reports with `engram delete <id>`.
 7. Codex's sandbox has no network: dependency installs (`pip`, `uv`) are done by the orchestrator in the shell, not by Codex.
 
 ## After every Codex run
