@@ -248,7 +248,8 @@ def diagnose(broker: dict, workers: dict, audios: dict, stale_minutes: int) -> l
             elif backlog:
                 add("worker_offline_with_backlog", "error",
                     "No worker is running and work is waiting.",
-                    "Start the worker: celery -A nomadaapolo worker -l info --concurrency=1")
+                    'Restart "python manage.py runserver" (it starts the worker), or run: '
+                    "celery -A nomadaapolo worker -l info --concurrency=1")
 
     if (audios_ok and broker_known and workers_ok and broker.get("truncated", 0) == 0
             and (workers.get("online") or broker.get("unacked", 0) == 0)):

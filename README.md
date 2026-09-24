@@ -212,3 +212,18 @@ broker credentials are excluded.
 A worker with concurrency 1 may not answer inspection while it is busy; a
 recent processing heartbeat distinguishes that case. Non-Redis brokers report
 queue inspection as unsupported rather than guessing queue contents.
+
+## Running the app
+
+`python manage.py runserver` starts Django and the Celery worker. If local Redis
+is down and Docker is available, it also runs `docker compose up -d --wait redis`.
+The worker inherits the runserver environment, including its database variables.
+
+The worker starts once, is not restarted by code reloads, and stops on
+<kbd>Ctrl</kbd>+<kbd>C</kbd> with SIGTERM, then SIGKILL after 10 seconds.
+An interrupted transcription remains `processing`; recover it with
+`python manage.py transcribe_pending --reset-stale 10 --enqueue`.
+
+Use `python manage.py runserver --no-worker` to opt out. The separate
+`docker compose up -d redis` and
+`celery -A nomadaapolo worker -l info --concurrency=1` commands remain valid.
