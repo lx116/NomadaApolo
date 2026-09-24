@@ -15,9 +15,25 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
-from django.urls import path, include
+from django.urls import include, path
+
+from api.ui_views import (
+    audio_folder_scan,
+    audio_list,
+    audio_status,
+    audio_upload,
+    queue_enqueue,
+    queue_status,
+)
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include('api.urls')),
+    path('upload/', audio_upload, name='audio-upload'),
+    path('folder/scan/', audio_folder_scan, name='audio-folder-scan'),
+    path('', audio_list, name='audio-list'),
+    path('audios/status/', audio_status, name='audio-status'),
+    path('queue/status/', queue_status, name='queue-status'),
+    path('queue/enqueue/', queue_enqueue, name='queue-enqueue'),
+    path('audios/<uuid:pk>/', audio_list, name='audio-detail'),
 ]

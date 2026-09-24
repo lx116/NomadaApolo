@@ -1,0 +1,9 @@
+{% if state == "pending" %}
+  <span class="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-800">pending</span>
+{% elif state == "processing" %}
+  <span class="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-medium text-blue-800">processing</span>
+{% elif state == "transcribed" %}
+  <span class="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-800">transcribed</span>
+{% elif state == "failed" %}
+  <span class="rounded-full bg-red-100 px-2.5 py-1 text-xs font-medium text-red-800">failed</span>
+{% endif %}

@@ -211,6 +211,53 @@ def test_duration_after_vad_absent(tmp_path, monkeypatch):
     assert transcribe(src)["metrics"]["duration_after_vad"] is None
 
 
+def test_on_progress_called_per_segment(tmp_path, monkeypatch):
+    segments = [_seg(0, 2, "one"), _seg(2, 4.5, "two"), _seg(4.5, 7, "three")]
+    src, _, _ = _setup(monkeypatch, tmp_path, segments, _info())
+    expected = transcribe(src)
+    src, _, _ = _setup(monkeypatch, tmp_path, segments, _info())
+    calls = []
+
+    result = transcribe(src, on_progress=lambda done, total: calls.append((done, total)))
+
+    assert calls == [(2.0, 30.0), (4.5, 30.0), (7.0, 30.0)]
+    assert result == expected
+
+
+def test_on_progress_generator_failure_maps_to_transcription_error(tmp_path, monkeypatch):
+    def broken():
+        yield _seg(0, 1, "one")
+        raise RuntimeError("stream broke")
+
+    src, _, _ = _setup(monkeypatch, tmp_path, broken(), _info())
+    calls = []
+    with pytest.raises(TranscriptionError):
+        transcribe(src, on_progress=lambda *values: calls.append(values))
+    assert calls == [(1.0, 30.0)]
+
+
+def test_on_progress_callback_raising_maps_to_transcription_error(tmp_path, monkeypatch):
+    src, _, _ = _setup(monkeypatch, tmp_path, [_seg(0, 1, "one")], _info())
+
+    def fail(done, total):
+        raise RuntimeError("callback broke")
+
+    with pytest.raises(TranscriptionError, match="callback broke"):
+        transcribe(src, on_progress=fail)
+
+
+def test_on_progress_total_none_without_duration(tmp_path, monkeypatch):
+    info = _info()
+    del info.duration
+    src, _, _ = _setup(monkeypatch, tmp_path, [_seg(0, 1, "one")], info)
+    calls = []
+
+    with pytest.raises(AttributeError):
+        transcribe(src, on_progress=lambda done, total: calls.append((done, total)))
+
+    assert calls == [(1.0, None)]
+
+
 # --- optional real cached-tiny integration ---
 
 

@@ -37,8 +37,8 @@ INSTALLED_APPS = [
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
-    'django.contrib.staticfiles',
     'api.apps.ApiConfig',
+    'django.contrib.staticfiles',
     'rest_framework',
 ]
 
@@ -123,6 +123,19 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.1/howto/static-files/
 
 STATIC_URL = 'static/'
+MEDIA_URL = "media/"
+MEDIA_ROOT = BASE_DIR / "media"
+AUDIO_SOURCE_ROOT = os.getenv("AUDIO_SOURCE_ROOT") or str(BASE_DIR / "audio")
+AUDIO_SOURCE_MAX_BYTES = int(os.getenv("AUDIO_SOURCE_MAX_BYTES", 2 * 1024**3))
+LOCAL_OWNER_USERNAME = os.getenv("LOCAL_OWNER_USERNAME", "local")
+
+CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
+CELERY_TASK_IGNORE_RESULT = True
+CELERY_TASK_PUBLISH_RETRY = False
+CELERY_BROKER_CONNECTION_TIMEOUT = 1
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+CELERY_BROKER_TRANSPORT_OPTIONS = {"socket_connect_timeout": 1}
+QUEUE_MONITOR_STALE_MINUTES = 10
 
 
 # Email

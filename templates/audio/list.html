@@ -1,0 +1,390 @@
+{% extends "base.html" %}
+
+{% block title %}Audios | Nomada Apolo{% endblock %}
+
+{% block header_actions %}
+  <button type="button" id="queue-open" aria-haspopup="dialog" aria-controls="queue-dialog" class="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50">Queue</button>
+  <a href="{% url 'audio-upload' %}" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Upload audio</a>
+{% endblock %}
+
+{% block content %}
+  {% if folder_source_enabled %}
+    {% if source_root_missing %}
+      <div class="mb-8 rounded-xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600">
+        The source folder "{{ source_root_name }}" does not exist yet. Create it or set AUDIO_SOURCE_ROOT.
+      </div>
+    {% else %}
+      <form method="post" action="{% url 'audio-folder-scan' %}" class="mb-8 flex flex-col gap-3 rounded-xl border border-gray-200 bg-white p-4 sm:flex-row sm:items-end">
+        {% csrf_token %}
+        <label class="flex-1 text-sm font-medium text-gray-700">
+          Source folder
+          <select name="subfolder" class="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 font-normal">
+            {% for value, label in source_folders %}
+              <option value="{{ value }}"{% if forloop.first %} selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <button type="submit" class="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50">Load audios from folder</button>
+      </form>
+    {% endif %}
+  {% endif %}
+  {% if selected %}
+    <div class="grid grid-cols-1 gap-8 md:grid-cols-[20rem_1fr]">
+      <section>
+        <h1 class="mb-4 text-sm font-semibold uppercase tracking-wider text-gray-500">List</h1>
+        <nav aria-label="Audios" class="space-y-2">
+          {% for a in audios %}
+            <a href="{% url 'audio-detail' a.pk %}"{% if a.pk == selected.pk %} aria-current="page"{% endif %}
+               class="flex items-center justify-between gap-3 rounded-xl border px-4 py-3 {% if a.pk == selected.pk %}border-blue-300 bg-blue-50 text-blue-950{% else %}border-gray-200 bg-white hover:border-gray-300{% endif %}">
+              <span class="min-w-0 truncate font-medium">{{ a.title }}</span>
+              <span class="flex shrink-0 items-center gap-2">
+                {% include "audio/_badge.html" with state=a.state %}
+                {% if a.state == "processing" %}<span data-progress-for="{{ a.pk }}" data-progress-kind="item" class="text-xs tabular-nums text-gray-500">{% if a.progress %}{{ a.progress.percent }}%{% endif %}</span>{% endif %}
+              </span>
+            </a>
+          {% endfor %}
+        </nav>
+      </section>
+
+      <section class="min-w-0 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+        <h2 class="mb-6 text-xl font-semibold">Transcript</h2>
+        {% if selected.state == "transcribed" and transcription.state == "completed" %}
+          <pre class="whitespace-pre-wrap break-words font-sans leading-7 text-gray-700">{{ transcription.raw_content }}</pre>
+        {% elif selected.state == "failed" %}
+          <p class="text-gray-600">Transcription failed</p>
+        {% elif selected.state == "processing" %}
+          <p role="status" class="flex items-center gap-2 text-gray-600">
+            <span class="h-2 w-2 rounded-full bg-blue-500 motion-safe:animate-pulse" aria-hidden="true"></span>
+            Transcribing...
+          </p>
+          <div data-progress-for="{{ selected.pk }}" data-progress-kind="panel" class="mt-4">
+            <div role="progressbar" aria-label="Transcription progress" aria-valuemin="0" aria-valuemax="100"{% if selected.progress %} aria-valuenow="{{ selected.progress.percent }}"{% endif %} class="h-2 overflow-hidden rounded-full bg-gray-100">
+              <div data-progress-fill class="h-full bg-blue-500{% if not selected.progress %} w-1/3 motion-safe:animate-pulse{% endif %}"{% if selected.progress %} style="width: {{ selected.progress.percent }}%"{% endif %}></div>
+            </div>
+            <p data-progress-text class="mt-2 text-sm tabular-nums text-gray-600">{% if selected.progress %}{{ selected.progress_label }}{% else %}Preparing…{% endif %}</p>
+          </div>
+        {% elif selected.state == "pending" %}
+          <p role="status" class="text-gray-600">Queued for transcription</p>
+          <p class="mt-2 text-sm text-gray-500">Make sure the Celery worker is running.</p>
+          <div data-queue-scope class="mt-3 flex flex-wrap items-center gap-3">
+            <button type="button" data-queue-action="recover" class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium hover:bg-gray-50 disabled:opacity-50">Re-queue now</button>
+            <p data-queue-result role="status" aria-live="polite" class="text-sm text-gray-700" hidden></p>
+          </div>
+        {% else %}
+          <p class="text-gray-600">Not transcribed yet.</p>
+        {% endif %}
+      </section>
+    </div>
+  {% else %}
+    <section class="rounded-2xl border border-dashed border-gray-300 bg-white px-6 py-16 text-center">
+      <h1 class="text-xl font-semibold">No audios yet</h1>
+      <p class="mx-auto mt-3 max-w-xl leading-7 text-gray-600">
+        Upload an audio file from the <a href="{% url 'audio-upload' %}" class="font-medium text-blue-600 hover:text-blue-700">Upload audio</a> page or load a folder. Transcription starts automatically.
+      </p>
+    </section>
+  {% endif %}
+  {% if selected %}
+    <p id="transcript-ready" role="status" aria-live="polite" class="mb-4 text-sm font-medium text-green-700" hidden></p>
+    <script>
+      (() => { try { if (sessionStorage.getItem("nomada:transcript-ready")) {
+        sessionStorage.removeItem("nomada:transcript-ready");
+        const el = document.getElementById("transcript-ready");
+        el.hidden = false; el.textContent = "Transcript ready"; } } catch {} })();
+    </script>
+  {% endif %}
+  {% if polling %}
+    {{ audio_states|json_script:"audio-states" }}
+    <script>
+      (() => {
+        const rendered = JSON.parse(document.getElementById("audio-states").textContent);
+        const url = "{% url 'audio-status' %}";
+
+        function clock(seconds) {
+          const total = Math.trunc(seconds);
+          const hours = Math.trunc(total / 3600);
+          const minutes = Math.trunc((total % 3600) / 60);
+          const secs = total % 60;
+          return hours
+            ? `${hours}:${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`
+            : `${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+        }
+
+        function renderProgress(audio) {
+          const progress = audio.progress;
+          document.querySelectorAll('[data-progress-for="' + audio.id + '"]').forEach((element) => {
+            if (element.dataset.progressKind === "item") {
+              element.textContent = progress ? progress.percent + "%" : "";
+              return;
+            }
+            const bar = element.querySelector('[role="progressbar"]');
+            const fill = element.querySelector("[data-progress-fill]");
+            const text = element.querySelector("[data-progress-text]");
+            if (progress) {
+              bar.setAttribute("aria-valuenow", progress.percent);
+              fill.style.width = progress.percent + "%";
+              fill.classList.remove("w-1/3", "motion-safe:animate-pulse");
+              text.textContent = `${progress.percent}% – ${clock(progress.done)} of ${clock(progress.total)}`;
+            } else {
+              bar.removeAttribute("aria-valuenow");
+              fill.style.width = "";
+              fill.classList.add("w-1/3", "motion-safe:animate-pulse");
+              text.textContent = "Preparing…";
+            }
+          });
+        }
+
+        async function poll() {
+          try {
+            const response = await fetch(url, {cache: "no-store"});
+            if (!response.ok) throw new Error("Status request failed");
+            const {audios} = await response.json();
+            const changed = (
+              audios.length !== Object.keys(rendered).length ||
+              audios.some((audio) => rendered[audio.id] !== audio.state)
+            );
+            if (changed) {
+              if (audios.some((audio) => rendered[audio.id] === "processing" && audio.state === "transcribed")) {
+                try { sessionStorage.setItem("nomada:transcript-ready", "1"); } catch {}
+              }
+              location.reload();
+              return;
+            }
+            audios.forEach(renderProgress);
+            if (!audios.some((audio) => ["pending", "processing"].includes(audio.state))) {
+              return;
+            }
+          } catch {
+            // Retry transient failures without disrupting the page.
+          }
+          setTimeout(poll, 3000);
+        }
+
+        setTimeout(poll, 3000);
+      })();
+    </script>
+  {% endif %}
+  <dialog id="queue-dialog" aria-labelledby="queue-dialog-title" data-url="{% url 'queue-status' %}" data-enqueue-url="{% url 'queue-enqueue' %}" data-csrf="{{ csrf_token }}" class="w-full max-w-2xl rounded-2xl p-0 backdrop:bg-gray-900/40">
+    <div class="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+      <h2 id="queue-dialog-title" class="text-lg font-semibold">Transcription queue</h2>
+      <button type="button" data-queue-close aria-label="Close" class="rounded-lg px-2 py-1 text-gray-500 hover:bg-gray-100">×</button>
+    </div>
+    <div class="max-h-[70vh] space-y-6 overflow-y-auto px-6 py-4">
+      {% if selected %}
+        <div data-queue-scope class="flex flex-wrap items-center gap-3">
+          <button type="button" data-queue-action="recover" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">Run queue now</button>
+          <p class="text-sm text-gray-600">Re-queues pending audios and recovers audios that have been stuck for a long time.</p>
+          <p data-queue-result role="status" aria-live="polite" class="w-full text-sm text-gray-700" hidden></p>
+        </div>
+      {% endif %}
+      <p data-queue-error role="alert" class="text-sm text-red-700" hidden></p>
+      <section aria-label="Connections" data-queue-connections class="flex gap-2"></section>
+      <section aria-label="Diagnostics" data-queue-diagnostics></section>
+      <section aria-label="Worker" data-queue-worker></section>
+      <section aria-label="Queued" data-queue-queued></section>
+      <section aria-label="Audios" data-queue-audios></section>
+    </div>
+  </dialog>
+  <script>
+    (() => {
+      const dialog = document.getElementById("queue-dialog");
+      const opener = document.getElementById("queue-open");
+      const errorBox = dialog.querySelector("[data-queue-error]");
+      const url = dialog.dataset.url;
+      const sections = {
+        connections: dialog.querySelector("[data-queue-connections]"),
+        diagnostics: dialog.querySelector("[data-queue-diagnostics]"),
+        worker: dialog.querySelector("[data-queue-worker]"),
+        queued: dialog.querySelector("[data-queue-queued]"),
+        audios: dialog.querySelector("[data-queue-audios]"),
+      };
+      let timer = null, inFlight = false;
+
+      function node(tag, text, cls) {
+        const element = document.createElement(tag);
+        if (text != null) element.textContent = String(text);
+        if (cls) element.className = cls;
+        return element;
+      }
+
+      function show(section, title, items) {
+        section.replaceChildren(node("h3", title, "mb-2 font-semibold"), ...items);
+      }
+
+      function renderConnections(broker, workers) {
+        let brokerText;
+        if (!broker.ok) brokerText = `Broker: unreachable (${broker.error})`;
+        else if (!broker.supported) brokerText = "Broker: not supported";
+        else brokerText = `Broker: ok (${broker.latency_ms}ms)`;
+
+        let workerText;
+        if (!workers.ok) workerText = `Worker: unknown (${workers.error})`;
+        else if (!workers.online.length) workerText = "Worker: no reply";
+        else workerText = `Worker: online (${workers.online.join(", ")})`;
+
+        show(sections.connections, "Connections", [
+          node("span", brokerText, "rounded-full border px-3 py-1 text-sm"),
+          node("span", workerText, "rounded-full border px-3 py-1 text-sm"),
+        ]);
+      }
+
+      function renderDiagnostics(diagnostics) {
+        const items = diagnostics.map((item) => {
+          const row = node("div", null, "mb-2 text-sm");
+          row.append(node("span", `${item.severity}: `, "font-medium"), node("span", item.message));
+          if (item.hint != null) row.append(node("code", item.hint, "ml-2 rounded bg-gray-100 px-1"));
+          return row;
+        });
+        show(sections.diagnostics, "Diagnostics", items.length ? items : [node("p", "No issues found", "text-sm text-gray-600")]);
+      }
+
+      function renderWorker(workers) {
+        if (!workers.ok) {
+          show(sections.worker, "Worker", [node("p", `Worker error: ${workers.error}`, "text-sm text-red-700")]);
+          return;
+        }
+        const items = [];
+        [["Active", workers.active], ["Reserved", workers.reserved]].forEach(([label, tasks]) => {
+          tasks.forEach((task) => items.push(node(
+            "p",
+            `${label}: ${task.title || task.audio_id || "unknown audio"} — ${task.worker} — ${task.task}`,
+            "text-sm",
+          )));
+        });
+        show(sections.worker, "Worker", items.length ? items : [node("p", "No running or reserved tasks", "text-sm text-gray-600")]);
+      }
+
+      function renderQueued(broker) {
+        if (!broker.ok) {
+          show(sections.queued, "Queued", [node("p", `Queue error: ${broker.error}`, "text-sm text-red-700")]);
+          return;
+        }
+        if (!broker.supported) {
+          show(sections.queued, "Queued", [node("p", "Queue not supported for this broker", "text-sm text-gray-600")]);
+          return;
+        }
+        const items = broker.messages.map((message, index) => node(
+          "p",
+          `${index + 1}. ${message.title || message.audio_id || "unknown message"}`,
+          "text-sm",
+        ));
+        if (broker.truncated > 0) items.push(node("p", `+${broker.truncated} more`, "text-sm text-gray-600"));
+        show(sections.queued, "Queued", items.length ? items : [node("p", "Queue is empty", "text-sm text-gray-600")]);
+      }
+
+      function renderAudios(audios) {
+        if (!audios.ok) {
+          show(sections.audios, "Audios", [node("p", `Audios error: ${audios.error}`, "text-sm text-red-700")]);
+          return;
+        }
+        const states = ["pending", "processing", "failed", "transcribed"];
+        const empty = {
+          pending: "No pending audios",
+          processing: "No processing audios",
+          failed: "No failed audios",
+          transcribed: "No transcribed audios",
+        };
+        const items = [node(
+          "p",
+          states.map((state) => `${state}: ${audios.counts[state]}`).join(" · "),
+          "mb-3 text-sm",
+        )];
+        states.forEach((state) => {
+          items.push(node("h4", state[0].toUpperCase() + state.slice(1), "mt-3 text-sm font-medium"));
+          if (!audios[state].length) {
+            items.push(node("p", empty[state], "text-sm text-gray-600"));
+            return;
+          }
+          audios[state].forEach((audio) => {
+            let detail = audio.title || audio.id;
+            if (state === "pending") detail += ` — age ${audio.age_s}s`;
+            if (state === "processing") {
+              detail += audio.percent == null ? " — no progress yet" : ` — ${audio.percent}%`;
+              detail += ` and heartbeat ${audio.heartbeat_age_s}s ago`;
+            }
+            items.push(node("p", detail, "text-sm"));
+          });
+        });
+        show(sections.audios, "Audios", items);
+      }
+
+      function render(data) {
+        renderConnections(data.broker, data.workers);
+        renderDiagnostics(data.diagnostics);
+        renderWorker(data.workers);
+        renderQueued(data.broker);
+        renderAudios(data.audios);
+      }
+
+      async function tick() {
+        if (inFlight || document.hidden) return;
+        inFlight = true;
+        try {
+          const response = await fetch(url, {cache: "no-store"});
+          if (!response.ok) throw new Error();
+          render(await response.json());
+          errorBox.hidden = true;
+        } catch {
+          errorBox.hidden = false;
+          errorBox.textContent = "Could not load queue status. Re" + "trying…";
+        } finally {
+          inFlight = false;
+        }
+      }
+
+      opener.addEventListener("click", () => {
+        if (dialog.open) return;
+        dialog.showModal();
+        tick();
+        timer = setInterval(tick, 3000);
+      });
+      dialog.addEventListener("close", () => {
+        clearInterval(timer);
+        timer = null;
+        opener.focus();
+      });
+      dialog.querySelector("[data-queue-close]").addEventListener("click", () => dialog.close());
+      dialog.addEventListener("click", (event) => { if (event.target === dialog) dialog.close(); });
+      document.addEventListener("queue:refresh", () => { if (dialog.open) tick(); });
+    })();
+  </script>
+  {% if selected %}
+    <script>
+      (() => {
+        const config = document.getElementById("queue-dialog").dataset;
+
+        document.addEventListener("click", async (event) => {
+          const button = event.target.closest("[data-queue-action]");
+          if (!button || button.disabled) return;
+          const result = button.closest("[data-queue-scope]").querySelector("[data-queue-result]");
+          button.disabled = true;
+          try {
+            const response = await fetch(config.enqueueUrl, {
+              method: "POST",
+              headers: {"X-CSRFToken": config.csrf},
+              credentials: "same-origin",
+            });
+            if (!response.ok) throw new Error();
+            const data = await response.json();
+            let message;
+            if (!data.broker_ok) {
+              message = `Could not reach the broker: ${data.failed} pending audio(s) were not queued.`;
+            } else {
+              const parts = [];
+              if (data.reset) parts.push(`Recovered ${data.reset} stuck audio(s)`);
+              if (data.enqueued) parts.push(`Queued ${data.enqueued} pending audio(s)`);
+              message = parts.length ? parts.join(", ") : "Nothing to queue.";
+            }
+            result.hidden = false;
+            result.textContent = message;
+            document.dispatchEvent(new CustomEvent("queue:refresh"));
+          } catch {
+            result.hidden = false;
+            result.textContent = "Could not run the queue. Try again.";
+          } finally {
+            button.disabled = false;
+          }
+        });
+      })();
+    </script>
+  {% endif %}
+{% endblock %}

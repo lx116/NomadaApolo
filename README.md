@@ -22,6 +22,51 @@ pytest
 The mocked contract tests run without FFmpeg. The real-binary integration
 test is skipped automatically when `ffprobe`/`ffmpeg` are absent.
 
+## Background transcription (Celery + Redis)
+
+After pulling this change, apply the database migration:
+
+```bash
+python manage.py migrate
+```
+
+This is required on PostgreSQL and adds two nullable progress columns. To roll
+it back, run `python manage.py migrate api 0002`.
+
+Start Redis, inspect it, and stop it when finished:
+
+```bash
+docker compose up -d redis
+docker compose ps
+docker compose logs redis
+docker compose down
+```
+
+Run Django in Terminal A and the Celery worker in Terminal B:
+
+```bash
+python manage.py runserver
+celery -A nomadaapolo worker --concurrency=1 -l info
+```
+
+Enqueue audio loaded before this change or while the broker was unavailable:
+
+```bash
+python manage.py transcribe_pending --enqueue
+```
+
+Reset stale processing rows before enqueueing them again:
+
+```bash
+python manage.py transcribe_pending --reset-stale 30 --enqueue
+```
+
+Progress heartbeats are written about once per second only while segments are
+produced. There is no heartbeat during model loading or long silence, so set
+`--reset-stale` to at least 10 minutes (30 minutes is the recommended default).
+
+Set the `CELERY_BROKER_URL` environment variable to override the broker URL.
+
 ## Public Contract (Slice 1 + 2)
 
 ```python
@@ -129,3 +174,61 @@ shape-only) with pre-cache and direct-invocation docs.
 
 **Not in this slice**: exporters, CLI, API, Django integration, and
 `Yurbaco.m4a` processing.
+
+## Queue monitor
+
+`GET /queue/status/` returns a read-only JSON snapshot of the transcription
+queue. The endpoint never publishes, acknowledges, or purges messages and does
+not write to the database. `QUEUE_MONITOR_STALE_MINUTES` controls when a
+processing audio is considered stale; it defaults to `10`.
+
+The **Queue** button in the audio-list header opens an audit modal.
+It requests the current snapshot immediately and refreshes every three seconds
+only while the modal is open. Close it with <kbd>Esc</kbd>, the close button,
+or a click on the backdrop. Closing stops refreshes and returns focus to the
+Queue button. Connection failures appear inside the modal while polling
+continues, so the audio list itself never probes the broker or worker.
+
+The payload contains:
+
+- broker reachability, Redis location, latency, queue counts, and capped tasks;
+- worker names plus capped active and reserved tasks;
+- audio state counts and capped state buckets;
+- ordered error, warning, and informational diagnostics.
+
+Only audio IDs and titles are exposed. Paths, filenames, transcript text, and
+broker credentials are excluded.
+
+| Diagnostic | Meaning | Action |
+| --- | --- | --- |
+| `broker_unreachable` | Redis cannot be reached. | `docker compose up -d redis` |
+| `worker_offline_with_backlog` | Work is waiting but no worker replied. | `celery -A nomadaapolo worker -l info --concurrency=1` |
+| `worker_no_reply` | A recent heartbeat suggests the worker may be busy. | Wait and check again. |
+| `pending_not_queued` | Pending audios are absent from the queue. | `python manage.py transcribe_pending --enqueue` |
+| `processing_no_worker` | Processing audios have stale heartbeats. | `python manage.py transcribe_pending --reset-stale 10` |
+| `queued_not_pending` | Queued tasks target non-pending audios. | No action; the worker skips them. |
+| `unknown_message` | Queued messages could not be decoded. | Inspect the producer. |
+
+A worker with concurrency 1 may not answer inspection while it is busy; a
+recent processing heartbeat distinguishes that case. Non-Redis brokers report
+queue inspection as unsupported rather than guessing queue contents.
+
+## Running the app
+
+`python manage.py runserver` starts Django and the Celery worker. If local Redis
+is down and Docker is available, it also runs `docker compose up -d --wait redis`.
+The worker inherits the runserver environment, including its database variables.
+On startup, `runserver` re-queues pending audios and recovers audios stuck longer
+than `QUEUE_MONITOR_STALE_MINUTES` (10). `POST /queue/enqueue/` performs the same
+recovery on demand and is used by the Queue panel buttons.
+The Queue modal has a "Run queue now" button and pending audios show a "Re-queue now" button; both call `POST /queue/enqueue/`, so recovery no longer needs the terminal.
+
+The worker starts once, is not restarted by code reloads, and stops on
+<kbd>Ctrl</kbd>+<kbd>C</kbd> with SIGTERM, then SIGKILL after 10 seconds.
+Closing the terminal (SIGHUP) or using `kill` also stops the worker; only a hard `kill -9` can leave one behind, and the next `runserver` detects and reuses it instead of starting a second.
+An interrupted transcription remains `processing`; recover it with
+`python manage.py transcribe_pending --reset-stale 10 --enqueue`.
+
+Use `python manage.py runserver --no-worker` to opt out. The separate
+`docker compose up -d redis` and
+`celery -A nomadaapolo worker -l info --concurrency=1` commands remain valid.
