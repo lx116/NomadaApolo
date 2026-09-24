@@ -13,9 +13,9 @@ from api.management.commands.runserver import Command
 def run_command(
     monkeypatch, *, run_main=None, enabled=True, running=False,
     server_error=None, server_callback=None, worker_error=None, worker_exit=None,
-    capture=None,
+    recover_result=None, recover_error=None, capture=None,
 ):
-    from api import dev_stack
+    from api import dev_stack, queue_actions
 
     if run_main is None:
         monkeypatch.delenv("RUN_MAIN", raising=False)
@@ -32,13 +32,18 @@ def run_command(
     stack["start_worker"].side_effect = worker_error
     for name, fake in stack.items():
         monkeypatch.setattr(dev_stack, name, fake)
+    recover = Mock(return_value=recover_result or {
+        "reset": 0, "enqueued": 0, "failed": 0, "broker_ok": True,
+    })
+    recover.side_effect = recover_error
+    monkeypatch.setattr(queue_actions, "recover", recover)
     monkeypatch.setattr("api.management.commands.runserver.time.sleep", Mock())
     server_run = Mock(side_effect=server_callback or server_error)
     monkeypatch.setattr(StaticRunserverCommand, "run", server_run)
     stream = io.StringIO()
     command = Command(stdout=stream)
     if capture is not None:
-        capture.update(proc=proc, stack=stack)
+        capture.update(proc=proc, stack=stack, recover=recover)
     command.run(start_worker=enabled)
     return proc, stack, server_run, stream
 
@@ -194,3 +199,51 @@ def test_sighup_handler_triggers_worker_stop(monkeypatch):
         run_command(monkeypatch, server_callback=send_sighup, capture=capture)
 
     capture["stack"]["stop_worker"].assert_called_once_with(capture["proc"])
+
+
+def test_run_recovers_queue_in_parent_process(monkeypatch):
+    capture = {}
+    _, _, _, stream = run_command(
+        monkeypatch,
+        recover_result={"reset": 1, "enqueued": 2, "failed": 0, "broker_ok": True},
+        capture=capture,
+    )
+
+    capture["recover"].assert_called_once_with(settings.QUEUE_MONITOR_STALE_MINUTES)
+    assert "Recovered 1 stuck audio(s)." in stream.getvalue()
+    assert "Re-queued 2 pending audio(s)." in stream.getvalue()
+
+
+def test_run_recovers_queue_even_when_worker_already_running(monkeypatch):
+    capture = {}
+    run_command(monkeypatch, running=True, capture=capture)
+    capture["recover"].assert_called_once_with(settings.QUEUE_MONITOR_STALE_MINUTES)
+
+
+def test_run_does_not_recover_in_reloader_child(monkeypatch):
+    capture = {}
+    run_command(monkeypatch, run_main="true", capture=capture)
+    capture["recover"].assert_not_called()
+
+
+def test_run_does_not_recover_with_no_worker_flag(monkeypatch):
+    capture = {}
+    run_command(monkeypatch, enabled=False, capture=capture)
+    capture["recover"].assert_not_called()
+
+
+def test_run_warns_when_broker_unreachable_during_recovery(monkeypatch):
+    _, _, _, stream = run_command(
+        monkeypatch,
+        recover_result={"reset": 0, "enqueued": 1, "failed": 2, "broker_ok": False},
+    )
+    assert "Could not reach the broker: 2 pending audio(s)" in stream.getvalue()
+
+
+def test_run_survives_recovery_exception(monkeypatch):
+    _, _, server_run, stream = run_command(
+        monkeypatch, recover_error=RuntimeError("secret")
+    )
+    assert "RuntimeError" in stream.getvalue()
+    assert "secret" not in stream.getvalue()
+    server_run.assert_called_once()

@@ -7,7 +7,7 @@ from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.views.decorators.http import require_GET, require_POST
 
-from api import queue_monitor
+from api import queue_actions, queue_monitor
 from api.folder_source import (
     FolderSourceError,
     discover_audio_files,
@@ -129,6 +129,13 @@ def audio_status(request) -> JsonResponse:
 @require_GET
 def queue_status(request) -> JsonResponse:
     return JsonResponse(queue_monitor.build_status())
+
+
+@require_POST
+def queue_enqueue(request) -> JsonResponse:
+    return JsonResponse(
+        queue_actions.recover(settings.QUEUE_MONITOR_STALE_MINUTES)
+    )
 
 
 def audio_upload(request) -> HttpResponse:

@@ -218,6 +218,9 @@ queue inspection as unsupported rather than guessing queue contents.
 `python manage.py runserver` starts Django and the Celery worker. If local Redis
 is down and Docker is available, it also runs `docker compose up -d --wait redis`.
 The worker inherits the runserver environment, including its database variables.
+On startup, `runserver` re-queues pending audios and recovers audios stuck longer
+than `QUEUE_MONITOR_STALE_MINUTES` (10). `POST /queue/enqueue/` performs the same
+recovery on demand and is used by the Queue panel buttons.
 
 The worker starts once, is not restarted by code reloads, and stops on
 <kbd>Ctrl</kbd>+<kbd>C</kbd> with SIGTERM, then SIGKILL after 10 seconds.

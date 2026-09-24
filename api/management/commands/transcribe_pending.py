@@ -1,12 +1,9 @@
 import argparse
-from datetime import timedelta
 
 from django.core.management.base import BaseCommand
-from django.utils import timezone
 
-from api import services
+from api import queue_actions, services
 from api.models import Audio
-from api.tasks import publish_transcription
 
 
 def _positive_int(value):
@@ -29,24 +26,12 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         reset_stale = options["reset_stale"]
         if reset_stale:
-            now = timezone.now()
-            reset = Audio.objects.filter(
-                state="processing",
-                updated_at__lt=now - timedelta(minutes=reset_stale),
-            ).update(
-                state="pending",
-                updated_at=now,
-                progress_done=None,
-                progress_total=None,
-            )
+            reset = queue_actions.reset_stale(reset_stale)
             self.stdout.write(f"{reset} reset to pending")
 
         if options["enqueue"]:
-            audios = Audio.objects.filter(state="pending").order_by("created_at")
-            enqueued = sum(
-                publish_transcription(str(audio.pk)) for audio in audios
-            )
-            self.stdout.write(f"{enqueued} enqueued")
+            result = queue_actions.enqueue_pending()
+            self.stdout.write(f"{result['enqueued']} enqueued")
             return
 
         if reset_stale:

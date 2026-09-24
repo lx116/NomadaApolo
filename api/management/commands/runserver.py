@@ -3,10 +3,11 @@ import signal
 import sys
 import time
 
+from django.conf import settings
 from django.contrib.staticfiles.management.commands.runserver import Command as StaticRunserverCommand
 from django.utils import autoreload
 
-from api import dev_stack
+from api import dev_stack, queue_actions
 
 
 class Command(StaticRunserverCommand):
@@ -21,6 +22,7 @@ class Command(StaticRunserverCommand):
         is_parent = os.environ.get(autoreload.DJANGO_AUTORELOAD_ENV) != "true"
         if options.get("start_worker", True) and is_parent:
             worker = self._start_stack()
+            self._recover_queue()
         previous_handlers = {}
         if worker is not None:
             for signum in (signal.SIGHUP, signal.SIGTERM):
@@ -60,3 +62,22 @@ class Command(StaticRunserverCommand):
             self.stdout.write(self.style.ERROR(message))
             return None
         return proc
+
+    def _recover_queue(self):
+        try:
+            result = queue_actions.recover(settings.QUEUE_MONITOR_STALE_MINUTES)
+        except Exception as exc:
+            self.stdout.write(self.style.WARNING(
+                f"Could not re-queue pending audios ({exc.__class__.__name__})."
+            ))
+            return
+        if result["reset"]:
+            self.stdout.write(f"Recovered {result['reset']} stuck audio(s).")
+        if result["enqueued"]:
+            self.stdout.write(f"Re-queued {result['enqueued']} pending audio(s).")
+        if not result["broker_ok"]:
+            self.stdout.write(self.style.WARNING(
+                "Could not reach the broker: "
+                f"{result['failed']} pending audio(s) were not queued. "
+                "Use the Queue panel to retry."
+            ))
