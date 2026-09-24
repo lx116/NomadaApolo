@@ -182,6 +182,13 @@ queue. The endpoint never publishes, acknowledges, or purges messages and does
 not write to the database. `QUEUE_MONITOR_STALE_MINUTES` controls when a
 processing audio is considered stale; it defaults to `10`.
 
+The **Queue** button in the audio-list header opens an audit modal.
+It requests the current snapshot immediately and refreshes every three seconds
+only while the modal is open. Close it with <kbd>Esc</kbd>, the close button,
+or a click on the backdrop. Closing stops refreshes and returns focus to the
+Queue button. Connection failures appear inside the modal while polling
+continues, so the audio list itself never probes the broker or worker.
+
 The payload contains:
 
 - broker reachability, Redis location, latency, queue counts, and capped tasks;

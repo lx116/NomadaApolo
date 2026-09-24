@@ -3,6 +3,7 @@
 {% block title %}Audios | Nomada Apolo{% endblock %}
 
 {% block header_actions %}
+  <button type="button" id="queue-open" aria-haspopup="dialog" aria-controls="queue-dialog" class="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50">Queue</button>
   <a href="{% url 'audio-upload' %}" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Upload audio</a>
 {% endblock %}
 
@@ -158,4 +159,180 @@
       })();
     </script>
   {% endif %}
+  <dialog id="queue-dialog" aria-labelledby="queue-dialog-title" data-url="{% url 'queue-status' %}" class="w-full max-w-2xl rounded-2xl p-0 backdrop:bg-gray-900/40">
+    <div class="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+      <h2 id="queue-dialog-title" class="text-lg font-semibold">Transcription queue</h2>
+      <button type="button" data-queue-close aria-label="Close" class="rounded-lg px-2 py-1 text-gray-500 hover:bg-gray-100">×</button>
+    </div>
+    <div class="max-h-[70vh] space-y-6 overflow-y-auto px-6 py-4">
+      <p data-queue-error role="alert" class="text-sm text-red-700" hidden></p>
+      <section aria-label="Connections" data-queue-connections class="flex gap-2"></section>
+      <section aria-label="Diagnostics" data-queue-diagnostics></section>
+      <section aria-label="Worker" data-queue-worker></section>
+      <section aria-label="Queued" data-queue-queued></section>
+      <section aria-label="Audios" data-queue-audios></section>
+    </div>
+  </dialog>
+  <script>
+    (() => {
+      const dialog = document.getElementById("queue-dialog");
+      const opener = document.getElementById("queue-open");
+      const errorBox = dialog.querySelector("[data-queue-error]");
+      const url = dialog.dataset.url;
+      const sections = {
+        connections: dialog.querySelector("[data-queue-connections]"),
+        diagnostics: dialog.querySelector("[data-queue-diagnostics]"),
+        worker: dialog.querySelector("[data-queue-worker]"),
+        queued: dialog.querySelector("[data-queue-queued]"),
+        audios: dialog.querySelector("[data-queue-audios]"),
+      };
+      let timer = null, inFlight = false;
+
+      function node(tag, text, cls) {
+        const element = document.createElement(tag);
+        if (text != null) element.textContent = String(text);
+        if (cls) element.className = cls;
+        return element;
+      }
+
+      function show(section, title, items) {
+        section.replaceChildren(node("h3", title, "mb-2 font-semibold"), ...items);
+      }
+
+      function renderConnections(broker, workers) {
+        let brokerText;
+        if (!broker.ok) brokerText = `Broker: unreachable (${broker.error})`;
+        else if (!broker.supported) brokerText = "Broker: not supported";
+        else brokerText = `Broker: ok (${broker.latency_ms}ms)`;
+
+        let workerText;
+        if (!workers.ok) workerText = `Worker: unknown (${workers.error})`;
+        else if (!workers.online.length) workerText = "Worker: no reply";
+        else workerText = `Worker: online (${workers.online.join(", ")})`;
+
+        show(sections.connections, "Connections", [
+          node("span", brokerText, "rounded-full border px-3 py-1 text-sm"),
+          node("span", workerText, "rounded-full border px-3 py-1 text-sm"),
+        ]);
+      }
+
+      function renderDiagnostics(diagnostics) {
+        const items = diagnostics.map((item) => {
+          const row = node("div", null, "mb-2 text-sm");
+          row.append(node("span", `${item.severity}: `, "font-medium"), node("span", item.message));
+          if (item.hint != null) row.append(node("code", item.hint, "ml-2 rounded bg-gray-100 px-1"));
+          return row;
+        });
+        show(sections.diagnostics, "Diagnostics", items.length ? items : [node("p", "No issues found", "text-sm text-gray-600")]);
+      }
+
+      function renderWorker(workers) {
+        if (!workers.ok) {
+          show(sections.worker, "Worker", [node("p", `Worker error: ${workers.error}`, "text-sm text-red-700")]);
+          return;
+        }
+        const items = [];
+        [["Active", workers.active], ["Reserved", workers.reserved]].forEach(([label, tasks]) => {
+          tasks.forEach((task) => items.push(node(
+            "p",
+            `${label}: ${task.title || task.audio_id || "unknown audio"} — ${task.worker} — ${task.task}`,
+            "text-sm",
+          )));
+        });
+        show(sections.worker, "Worker", items.length ? items : [node("p", "No running or reserved tasks", "text-sm text-gray-600")]);
+      }
+
+      function renderQueued(broker) {
+        if (!broker.ok) {
+          show(sections.queued, "Queued", [node("p", `Queue error: ${broker.error}`, "text-sm text-red-700")]);
+          return;
+        }
+        if (!broker.supported) {
+          show(sections.queued, "Queued", [node("p", "Queue not supported for this broker", "text-sm text-gray-600")]);
+          return;
+        }
+        const items = broker.messages.map((message, index) => node(
+          "p",
+          `${index + 1}. ${message.title || message.audio_id || "unknown message"}`,
+          "text-sm",
+        ));
+        if (broker.truncated > 0) items.push(node("p", `+${broker.truncated} more`, "text-sm text-gray-600"));
+        show(sections.queued, "Queued", items.length ? items : [node("p", "Queue is empty", "text-sm text-gray-600")]);
+      }
+
+      function renderAudios(audios) {
+        if (!audios.ok) {
+          show(sections.audios, "Audios", [node("p", `Audios error: ${audios.error}`, "text-sm text-red-700")]);
+          return;
+        }
+        const states = ["pending", "processing", "failed", "transcribed"];
+        const empty = {
+          pending: "No pending audios",
+          processing: "No processing audios",
+          failed: "No failed audios",
+          transcribed: "No transcribed audios",
+        };
+        const items = [node(
+          "p",
+          states.map((state) => `${state}: ${audios.counts[state]}`).join(" · "),
+          "mb-3 text-sm",
+        )];
+        states.forEach((state) => {
+          items.push(node("h4", state[0].toUpperCase() + state.slice(1), "mt-3 text-sm font-medium"));
+          if (!audios[state].length) {
+            items.push(node("p", empty[state], "text-sm text-gray-600"));
+            return;
+          }
+          audios[state].forEach((audio) => {
+            let detail = audio.title || audio.id;
+            if (state === "pending") detail += ` — age ${audio.age_s}s`;
+            if (state === "processing") {
+              detail += audio.percent == null ? " — no progress yet" : ` — ${audio.percent}%`;
+              detail += ` and heartbeat ${audio.heartbeat_age_s}s ago`;
+            }
+            items.push(node("p", detail, "text-sm"));
+          });
+        });
+        show(sections.audios, "Audios", items);
+      }
+
+      function render(data) {
+        renderConnections(data.broker, data.workers);
+        renderDiagnostics(data.diagnostics);
+        renderWorker(data.workers);
+        renderQueued(data.broker);
+        renderAudios(data.audios);
+      }
+
+      async function tick() {
+        if (inFlight || document.hidden) return;
+        inFlight = true;
+        try {
+          const response = await fetch(url, {cache: "no-store"});
+          if (!response.ok) throw new Error();
+          render(await response.json());
+          errorBox.hidden = true;
+        } catch {
+          errorBox.hidden = false;
+          errorBox.textContent = "Could not load queue status. Re" + "trying…";
+        } finally {
+          inFlight = false;
+        }
+      }
+
+      opener.addEventListener("click", () => {
+        if (dialog.open) return;
+        dialog.showModal();
+        tick();
+        timer = setInterval(tick, 3000);
+      });
+      dialog.addEventListener("close", () => {
+        clearInterval(timer);
+        timer = null;
+        opener.focus();
+      });
+      dialog.querySelector("[data-queue-close]").addEventListener("click", () => dialog.close());
+      dialog.addEventListener("click", (event) => { if (event.target === dialog) dialog.close(); });
+    })();
+  </script>
 {% endblock %}
