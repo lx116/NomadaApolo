@@ -119,7 +119,7 @@ def test_empty_list_200_empty_state(client):
     response = client.get(reverse("audio-list"))
 
     assert response.status_code == 200
-    assert b"The upload page will come later" in response.content
+    assert b"No audios yet" in response.content
     assert b"python manage.py transcribe_pending" in response.content
 
 

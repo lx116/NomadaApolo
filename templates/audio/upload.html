@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block title %}Upload audio | Nomada Apolo{% endblock %}
+
+{% block content %}
+  <section class="mx-auto max-w-xl rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+    <h1 class="text-xl font-semibold">Upload audio</h1>
+    <p class="mt-2 text-sm text-gray-600">Add an audio file to the transcription queue.</p>
+
+    <form method="post" enctype="multipart/form-data">
+      <div class="mt-6 space-y-5">
+      {% csrf_token %}
+      <div>
+        <label for="{{ form.title.id_for_label }}" class="mb-2 block text-sm font-medium text-gray-700">Title <span class="font-normal text-gray-500">(optional)</span></label>
+        <input type="text" name="{{ form.title.html_name }}" id="{{ form.title.id_for_label }}" maxlength="200" value="{{ form.title.value|default_if_none:'' }}" class="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-blue-500 focus:outline-none">
+        {% for error in form.title.errors %}<p class="mt-2 text-sm text-red-700">{{ error }}</p>{% endfor %}
+      </div>
+      <div>
+        <label for="{{ form.audio_file.id_for_label }}" class="mb-2 block text-sm font-medium text-gray-700">Audio file</label>
+        <input type="file" name="{{ form.audio_file.html_name }}" id="{{ form.audio_file.id_for_label }}" required class="block w-full rounded-lg border border-gray-300 text-sm text-gray-700 file:mr-4 file:border-0 file:bg-gray-100 file:px-4 file:py-2">
+        {% for error in form.audio_file.errors %}<p class="mt-2 text-sm text-red-700">{{ error }}</p>{% endfor %}
+      </div>
+      <div class="flex items-center gap-4">
+        <button type="submit" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Upload audio</button>
+        <a href="{% url 'audio-list' %}" class="text-sm font-medium text-gray-600 hover:text-gray-900">Back to list</a>
+      </div>
+      </div>
+    </form>
+  </section>
+{% endblock %}

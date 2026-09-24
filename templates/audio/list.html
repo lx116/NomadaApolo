@@ -2,6 +2,10 @@
 
 {% block title %}Audios | Nomada Apolo{% endblock %}
 
+{% block header_actions %}
+  <a href="{% url 'audio-upload' %}" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">Upload audio</a>
+{% endblock %}
+
 {% block content %}
   {% if selected %}
     <div class="grid grid-cols-1 gap-8 md:grid-cols-[20rem_1fr]">
@@ -33,7 +37,7 @@
     <section class="rounded-2xl border border-dashed border-gray-300 bg-white px-6 py-16 text-center">
       <h1 class="text-xl font-semibold">No audios yet</h1>
       <p class="mx-auto mt-3 max-w-xl leading-7 text-gray-600">
-        The upload page will come later. For now, add audio records and run
+        Upload an audio file from the <a href="{% url 'audio-upload' %}" class="font-medium text-blue-600 hover:text-blue-700">Upload audio</a> page, then run
         <code class="rounded bg-gray-100 px-1.5 py-1 text-sm">python manage.py transcribe_pending</code>
         to generate transcripts.
       </p>

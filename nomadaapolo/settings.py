@@ -125,6 +125,7 @@ USE_TZ = True
 STATIC_URL = 'static/'
 MEDIA_URL = "media/"
 MEDIA_ROOT = BASE_DIR / "media"
+LOCAL_OWNER_USERNAME = os.getenv("LOCAL_OWNER_USERNAME", "local")
 
 
 # Email
