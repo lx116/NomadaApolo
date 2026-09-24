@@ -42,21 +42,25 @@ class TranscriptionResult(TypedDict):
     metrics: TranscriptionMetrics
 
 
-def _build_segments(segments_iter):
+def _build_segments(segments_iter, on_progress=None, total=None):
     """Materialize the generator into a list of normalized Segment dicts."""
-    return [
-        {"start": float(s.start), "end": float(s.end), "text": s.text.strip()}
-        for s in segments_iter
-    ]
+    segments = []
+    for s in segments_iter:
+        segment = {"start": float(s.start), "end": float(s.end), "text": s.text.strip()}
+        segments.append(segment)
+        if on_progress is not None:
+            on_progress(segment["end"], total)
+    return segments
 
 
-def transcribe(path: str | Path, config=None) -> TranscriptionResult:
+def transcribe(path: str | Path, config=None, *, on_progress=None) -> TranscriptionResult:
     """Validate, probe, normalize, then transcribe and return a typed result.
 
     Audio-domain failures (validation, probing, normalization) propagate
     unchanged and prevent model loading. Model construction, transcription, and
     generator-consumption failures become ``TranscriptionError`` with the
     original cause chained. The source path is never modified.
+    ``on_progress`` receives each segment end and detected duration when provided.
     """
     from transcriptor.config import TranscriptionConfig
 
@@ -89,7 +93,9 @@ def transcribe(path: str | Path, config=None) -> TranscriptionResult:
             beam_size=cfg.beam_size,
             vad_filter=cfg.vad_filter,
         )
-        segments = _build_segments(segments_iter)
+        segments = _build_segments(
+            segments_iter, on_progress, getattr(info, "duration", None)
+        )
         processing_time_s = max(0.0, perf_counter() - t0)
     except TranscriptionError:
         raise

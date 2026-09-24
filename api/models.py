@@ -44,6 +44,9 @@ class Audio(models.Model):
         default='pending'
     )
 
+    progress_done = models.FloatField(null=True, blank=True, editable=False)
+    progress_total = models.FloatField(null=True, blank=True, editable=False)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

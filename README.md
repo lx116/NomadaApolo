@@ -24,6 +24,15 @@ test is skipped automatically when `ffprobe`/`ffmpeg` are absent.
 
 ## Background transcription (Celery + Redis)
 
+After pulling this change, apply the database migration:
+
+```bash
+python manage.py migrate
+```
+
+This is required on PostgreSQL and adds two nullable progress columns. To roll
+it back, run `python manage.py migrate api 0002`.
+
 Start Redis, inspect it, and stop it when finished:
 
 ```bash
@@ -51,6 +60,10 @@ Reset stale processing rows before enqueueing them again:
 ```bash
 python manage.py transcribe_pending --reset-stale 30 --enqueue
 ```
+
+Progress heartbeats are written about once per second only while segments are
+produced. There is no heartbeat during model loading or long silence, so set
+`--reset-stale` to at least 10 minutes (30 minutes is the recommended default).
 
 Set the `CELERY_BROKER_URL` environment variable to override the broker URL.
 

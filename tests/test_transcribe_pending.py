@@ -182,3 +182,41 @@ def test_reset_then_enqueue_includes_reset_row():
     with patch.object(tasks.transcribe_audio_task, "delay") as delay:
         call_command("transcribe_pending", "--reset-stale", "30", "--enqueue", stdout=StringIO())
     delay.assert_called_once_with(str(audio.pk))
+
+
+@pytest.mark.django_db
+def test_reset_stale_clears_progress():
+    owner = User.objects.create_user(username="owner-progress")
+    old = create_audio(owner, "old-progress", "processing")
+    recent = create_audio(owner, "recent-progress", "processing")
+    now = timezone.now()
+    Audio.objects.filter(pk=old.pk).update(
+        updated_at=now - timedelta(minutes=31), progress_done=40, progress_total=90
+    )
+    Audio.objects.filter(pk=recent.pk).update(
+        updated_at=now - timedelta(minutes=29), progress_done=10, progress_total=90
+    )
+
+    call_command("transcribe_pending", "--reset-stale", "30", stdout=StringIO())
+
+    old.refresh_from_db(); recent.refresh_from_db()
+    assert (old.state, old.progress_done, old.progress_total) == ("pending", None, None)
+    assert (recent.state, recent.progress_done, recent.progress_total) == ("processing", 10.0, 90.0)
+
+
+@pytest.mark.django_db
+def test_sync_run_persists_no_progress(monkeypatch):
+    owner = User.objects.create_user(username="owner-sync")
+    audio = create_audio(owner, "sync")
+
+    def fake(path, **kwargs):
+        if kwargs.get("on_progress"):
+            kwargs["on_progress"](1, 10)
+        return result()
+
+    install_fake(monkeypatch, fake)
+    call_command("transcribe_pending", stdout=StringIO())
+    audio.refresh_from_db()
+    assert (audio.state, audio.progress_done, audio.progress_total) == (
+        "transcribed", None, None
+    )

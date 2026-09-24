@@ -33,7 +33,12 @@ class Command(BaseCommand):
             reset = Audio.objects.filter(
                 state="processing",
                 updated_at__lt=now - timedelta(minutes=reset_stale),
-            ).update(state="pending", updated_at=now)
+            ).update(
+                state="pending",
+                updated_at=now,
+                progress_done=None,
+                progress_total=None,
+            )
             self.stdout.write(f"{reset} reset to pending")
 
         if options["enqueue"]:

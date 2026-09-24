@@ -25,14 +25,18 @@ def format_transcript(segments: list[dict]) -> str:
     )
 
 
-def transcribe_audio(audio: Audio, transcribe=transcribe, *, claimed=False) -> Audio:
+def transcribe_audio(audio: Audio, transcribe=transcribe, *, claimed=False, on_progress=None) -> Audio:
     if not claimed:
         audio.state = "processing"
         audio.save(update_fields=["state", "updated_at"])
 
     try:
         path = str(Path(audio.audio_file.path).resolve(strict=True))
-        result = transcribe(path)
+        result = (
+            transcribe(path)
+            if on_progress is None
+            else transcribe(path, on_progress=on_progress)
+        )
 
         with transaction.atomic():
             AudioTranscription.objects.update_or_create(
