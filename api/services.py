@@ -25,9 +25,10 @@ def format_transcript(segments: list[dict]) -> str:
     )
 
 
-def transcribe_audio(audio: Audio, transcribe=transcribe) -> Audio:
-    audio.state = "processing"
-    audio.save(update_fields=["state", "updated_at"])
+def transcribe_audio(audio: Audio, transcribe=transcribe, *, claimed=False) -> Audio:
+    if not claimed:
+        audio.state = "processing"
+        audio.save(update_fields=["state", "updated_at"])
 
     try:
         path = str(Path(audio.audio_file.path).resolve(strict=True))

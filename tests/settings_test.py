@@ -6,3 +6,6 @@ DATABASES = {
         "NAME": ":memory:",
     }
 }
+
+CELERY_BROKER_URL = "memory://"
+CELERY_BROKER_TRANSPORT_OPTIONS = {}

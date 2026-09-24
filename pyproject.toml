@@ -7,10 +7,12 @@ name = "nomadaapolo"
 version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
+    "celery>=5.4",
     "django>=6.1",
     "djangorestframework>=3.16",
     "faster-whisper>=1.2.1",
     "psycopg[binary]>=3.1",
+    "redis>=5",
 ]
 
 [dependency-groups]
